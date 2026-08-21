@@ -1,0 +1,35 @@
+export const MAP_CONFIG={
+  viewWidth:150,
+  centerYRatio:0.56,
+  colors:{
+    ground:"#1a2027",
+    sea:"#24445c",
+    wet:"#5d6667",
+    sand:"#89795e",
+    sidewalk:"#7a7f82",
+    roadEdge:"#161a1e",
+    road:"#44494d",
+    lane:"#d8d6cb",
+    building:"#242a31",
+    buildingEdge:"#808995",
+    forest:"#244d31",
+    forestEdge:"#477354",
+    garden:"#315b38",
+    gardenEdge:"#7fa16f",
+    gardenPath:"#8a7d66",
+    player:"#ffffff"
+  },
+  garden:{
+    width:101.0,
+    frontZ:58.92,
+    backZ:164.0,
+    flowerWidth:21.25,
+    flowerDepth:39.7375,
+    flowerZ:101.0,
+    flowerOffsetX:26.0,
+    fountainZ:134.3,
+    activityOffsetX:35.0,
+    activityZ:157.0
+  }
+};
+

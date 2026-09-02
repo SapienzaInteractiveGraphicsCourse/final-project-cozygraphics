@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
+import { Vehicle } from "../classes/Vehicle.js";
 
 let ctx=null;
 let vehicleLoader=null;
@@ -443,22 +444,20 @@ function loadStreetVehicles(){
         const wheelAnimation=setupCarTyreAnimation(car);
 
         const initialProgress=THREE.MathUtils.clamp((startX+70)/140,0,1);
-        ctx.STREET_ASSETS.cars.push({
-          root:car,
-          direction,
-          speed,
-          desiredSpeed:speed,
-          currentSpeed:speed,
-          progress:direction>0 ? initialProgress*.62 : 1-initialProgress*.62,
-          wheelAnimation,
-          baseY:car.position.y,
-          phase,
-          laneOffset:z<41 ? -3.5 : 3.5,
-          smoothYaw:car.rotation.y,
-          smoothRoll:0,
-          smoothPitch:0,
-          previousTangent:null
-        });
+        ctx.STREET_ASSETS.cars.push(
+          new Vehicle({
+            root:car,
+            direction,
+            speed,
+            progress:
+              direction>0
+                ? initialProgress*.62
+                : 1-initialProgress*.62,
+            wheelAnimation,
+            phase,
+            laneOffset:z<41 ? -3.5 : 3.5
+          })
+        );
       }
 
       createStreetCar({
@@ -957,70 +956,9 @@ export function updateVehicles(){
 
     car.root.visible=true;
 
-    if(car.wheelAnimation){
-      const currentWorldPosition=
-        new THREE.Vector3();
+    car.updateWheelRotation(dt);
 
-      car.root.getWorldPosition(
-        currentWorldPosition
-      );
-
-      if(
-        !car.wheelAnimation.wasVisible ||
-        !car.wheelAnimation.previousWorldPosition
-      ){
-        car.wheelAnimation.previousWorldPosition=
-          currentWorldPosition.clone();
-
-        car.wheelAnimation.wasVisible=true;
-      }else{
-        const travelled=
-          currentWorldPosition.distanceTo(
-            car.wheelAnimation.previousWorldPosition
-          );
-
-        const teleportThreshold=
-          Math.max(
-            (car.currentSpeed??car.speed)*
-            dt*
-            4.0,
-            2.0
-          );
-
-        if(
-          travelled<=
-          teleportThreshold
-        ){
-          const signedDistance=
-            travelled*
-            car.direction;
-
-          car.wheelAnimation.angle-=
-            signedDistance/
-            car.wheelAnimation.worldWheelRadius;
-
-          if(
-            Math.abs(
-              car.wheelAnimation.angle
-            )>
-            Math.PI*200
-          ){
-            car.wheelAnimation.angle%=
-              Math.PI*2;
-          }
-
-          car.wheelAnimation.uniforms
-            .uWheelAngle.value=
-            car.wheelAnimation.angle;
-        }
-
-        car.wheelAnimation.previousWorldPosition
-          .copy(currentWorldPosition);
-      }
-    }
-
-    // Stable chassis height. Previous fake suspension oscillation caused
-    // visible vibration, especially on lower/variable frame rates.
-    car.root.position.y=car.baseY;
+    // Stable chassis height.
+    car.keepStableHeight();
   }
 }

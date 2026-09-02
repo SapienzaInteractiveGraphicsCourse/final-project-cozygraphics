@@ -120,12 +120,10 @@ export function drawMinimap(deps){
   ctx.roundRect(0,0,w,h,38);
   ctx.clip();
 
-  ctx.fillStyle=COL.ground;
+  // Neutral world ground. Green is reserved for the fenced garden/lawn,
+  // so grass does not visually continue beyond the garden fence.
+  ctx.fillStyle="#777167";
   ctx.fillRect(0,0,w,h);
-
-  polygon([[-140,104],[140,104],[140,210],[-140,210]],COL.sea);
-  polygon([[-140,86],[140,86],[140,104],[-140,104]],COL.wet);
-  polygon([[-140,54],[140,54],[140,86],[-140,86]],COL.sand);
 
   ctx.globalAlpha=.12;
   ctx.strokeStyle="#ffffff";
@@ -159,8 +157,91 @@ export function drawMinimap(deps){
     ctx.stroke();
   }
 
+  // ------------------------------------------------------------
+  // GRASS TO ROAD CURVE · GARDEN SIDE ONLY
+  //
+  // The lawn reaches all the way to the curved sidewalk/road boundary,
+  // but ONLY on the Garden side.
+  // Casino/Jewelry side is not modified at all.
+  // ------------------------------------------------------------
+  function drawGardenGrassToCurve(){
+    const roadSide=[];
+    const gardenSide=[];
+    const samples=120;
+
+    // A reference point clearly inside the Garden.
+    const gardenRefX=0;
+    const gardenRefZ=112;
+
+    // Start at the outer edge of the Garden-side sidewalk.
+    // The second offset simply extends the same grass farther into Garden.
+    const nearOffset=24.2;
+    const farOffset=105.0;
+
+    for(let i=0;i<=samples;i++){
+      const t=i/samples;
+      const p=uRoadCurve.getPointAt(t);
+
+      // Do not touch the Casino/Jewelry portion of the road.
+      // Only start this terrain once the curve reaches the Garden area.
+      if(p.z<52.0) continue;
+
+      const tangent=uRoadCurve.getTangentAt(t).normalize();
+
+      let nx=-tangent.z;
+      let nz= tangent.x;
+
+      // Pick ONLY the normal pointing toward the Garden.
+      const gx=gardenRefX-p.x;
+      const gz=gardenRefZ-p.z;
+
+      if(nx*gx+nz*gz<0){
+        nx=-nx;
+        nz=-nz;
+      }
+
+      roadSide.push(
+        worldToRadar(
+          p.x+nx*nearOffset,
+          p.z+nz*nearOffset
+        )
+      );
+
+      gardenSide.push(
+        worldToRadar(
+          p.x+nx*farOffset,
+          p.z+nz*farOffset
+        )
+      );
+    }
+
+    if(roadSide.length<2 || gardenSide.length<2) return;
+
+    ctx.save();
+    ctx.fillStyle=COL.garden;
+
+    ctx.beginPath();
+    ctx.moveTo(roadSide[0].x,roadSide[0].y);
+
+    for(let i=1;i<roadSide.length;i++){
+      ctx.lineTo(roadSide[i].x,roadSide[i].y);
+    }
+
+    for(let i=gardenSide.length-1;i>=0;i--){
+      ctx.lineTo(gardenSide[i].x,gardenSide[i].y);
+    }
+
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  drawGardenGrassToCurve();
+
   strokeRoad(0,29,COL.roadEdge);
   strokeRoad(0,22,COL.road);
+
+  // Keep BOTH curve/sidewalk strokes exactly as they were.
   strokeRoad(-15,7,COL.sidewalk);
   strokeRoad(17.5,13,COL.sidewalk);
 
@@ -179,11 +260,42 @@ export function drawMinimap(deps){
   ctx.setLineDash([]);
   ctx.globalAlpha=1;
 
-  polygon([[-37.75,-35],[-6.25,-35],[-6.25,3],[-37.75,3]],COL.building,COL.buildingEdge,1.5);
-  polygon([[6.25,-35],[37.75,-35],[37.75,3],[6.25,3]],COL.building,COL.buildingEdge,1.5);
+  // Main building footprints come directly from the current scene values.
+  const roomHalfW=SCENE_ENV_CONFIG.roomWidth*.5;
+  const roomFrontZ=SCENE_ENV_CONFIG.frontZ;
+  const roomBackZ=SCENE_ENV_CONFIG.backZ;
 
-  polygon([[-34,-31],[-10,-31],[-10,-4],[-34,-4]],"#303740",null);
-  polygon([[10,-31],[34,-31],[34,-4],[10,-4]],"#303740",null);
+  polygon([
+    [SCENE_ENV_CONFIG.leftRoomCenterX-roomHalfW,roomBackZ],
+    [SCENE_ENV_CONFIG.leftRoomCenterX+roomHalfW,roomBackZ],
+    [SCENE_ENV_CONFIG.leftRoomCenterX+roomHalfW,roomFrontZ],
+    [SCENE_ENV_CONFIG.leftRoomCenterX-roomHalfW,roomFrontZ]
+  ],COL.building,COL.buildingEdge,1.5);
+
+  polygon([
+    [SCENE_ENV_CONFIG.rightRoomCenterX-roomHalfW,roomBackZ],
+    [SCENE_ENV_CONFIG.rightRoomCenterX+roomHalfW,roomBackZ],
+    [SCENE_ENV_CONFIG.rightRoomCenterX+roomHalfW,roomFrontZ],
+    [SCENE_ENV_CONFIG.rightRoomCenterX-roomHalfW,roomFrontZ]
+  ],COL.building,COL.buildingEdge,1.5);
+
+  // Slight inner shading, derived from each room instead of old fixed coordinates.
+  const innerInsetX=3.75;
+  const innerInsetZ=4.0;
+
+  polygon([
+    [SCENE_ENV_CONFIG.leftRoomCenterX-roomHalfW+innerInsetX,roomBackZ+innerInsetZ],
+    [SCENE_ENV_CONFIG.leftRoomCenterX+roomHalfW-innerInsetX,roomBackZ+innerInsetZ],
+    [SCENE_ENV_CONFIG.leftRoomCenterX+roomHalfW-innerInsetX,roomFrontZ-innerInsetZ],
+    [SCENE_ENV_CONFIG.leftRoomCenterX-roomHalfW+innerInsetX,roomFrontZ-innerInsetZ]
+  ],"#303740",null);
+
+  polygon([
+    [SCENE_ENV_CONFIG.rightRoomCenterX-roomHalfW+innerInsetX,roomBackZ+innerInsetZ],
+    [SCENE_ENV_CONFIG.rightRoomCenterX+roomHalfW-innerInsetX,roomBackZ+innerInsetZ],
+    [SCENE_ENV_CONFIG.rightRoomCenterX+roomHalfW-innerInsetX,roomFrontZ-innerInsetZ],
+    [SCENE_ENV_CONFIG.rightRoomCenterX-roomHalfW+innerInsetX,roomFrontZ-innerInsetZ]
+  ],"#303740",null);
 
   for(const off of crosswalkOffsets){
     const z=CROSSWALK.centerZ+off;
@@ -195,318 +307,242 @@ export function drawMinimap(deps){
     ],"rgba(232,235,236,.80)");
   }
 
-  polygon([
-    [-88,164],
-    [88,164],
-    [88,218],
-    [-88,218]
-  ],"rgba(36,77,49,.56)","rgba(71,115,84,.50)",1);
+  // ============================================================
+  // GARDEN · EXACT PROPORTIONS + REPRESENTATIVE TREES + FOUNTAIN
+  // No exhibition objects are drawn.
+  // ============================================================
+
+  const gardenAxisX=0;
+
+  const fenceMinX=-71.000;
+  const fenceMaxX=71.000;
+  const fenceFrontZ=56.900;
+  const fenceBackZ=161.012;
+
+  const concreteMinX=-42.450;
+  const concreteMaxX=48.450;
+  const concreteFrontZ=58.440;
+  const concreteBackZ=128.530;
+
+  const roseWidth=12.000;
+  const roseDepth=11.500;
+  const roseZ=82.439;
+  const roseLeftX=-23.100;
+  const roseRightX=23.700;
+
+  const concrete="#9a9383";
+  const concreteEdge="#c0b7a4";
+  const lawn=COL.garden;
+  const lawnEdge=COL.gardenEdge;
+
+  // Garden green continues beyond the fence wherever the garden trees stand.
+  // The fence is a boundary element, not the end of the grass terrain.
+  // Real accepted tree layout reaches roughly X -84.7..+83.8 and Z up to ~169.
+  // Paint that whole outer tree belt with the SAME garden green so the trees
+  // never appear to stand on the mountain/background terrain.
+  // The grass does NOT end shortly after the fence.
+  // It is the surrounding terrain and continues far beyond the visible map.
+  const outerTreeGrassMinX=-260.0;
+  const outerTreeGrassMaxX= 260.0;
+  const outerTreeGrassMinZ=fenceFrontZ;
+  const outerTreeGrassMaxZ=420.0;
 
   polygon([
-    [-88,58],
-    [-52,58],
-    [-52,190],
-    [-88,190]
-  ],"rgba(36,77,49,.44)",null);
+    [outerTreeGrassMinX,outerTreeGrassMinZ],
+    [outerTreeGrassMaxX,outerTreeGrassMinZ],
+    [outerTreeGrassMaxX,outerTreeGrassMaxZ],
+    [outerTreeGrassMinX,outerTreeGrassMaxZ]
+  ],lawn,lawnEdge,.8);
 
-  polygon([
-    [54,58],
-    [88,58],
-    [88,190],
-    [54,190]
-  ],"rgba(36,77,49,.44)",null);
+  // The green terrain continues indefinitely after the curved section.
+  // There is intentionally NO visible back edge to the grass on the minimap.
+  // Road and sidewalk are drawn above this terrain later.
+  {
+    const farLeft=worldToRadar(-260.0,165.0);
+    const farRight=worldToRadar(260.0,165.0);
+    const infinityRight=worldToRadar(260.0,420.0);
+    const infinityLeft=worldToRadar(-260.0,420.0);
 
-  if(
-    typeof GARDEN_TREE_DECOR!=="undefined" &&
-    Array.isArray(GARDEN_TREE_DECOR.treeCollisionInstances) &&
-    GARDEN_TREE_DECOR.treeCollisionInstances.length
-  ){
     ctx.save();
+    ctx.fillStyle=lawn;
 
-    const treeGroupMatrix=
-      GARDEN_TREE_DECOR.group?.matrixWorld ||
-      new THREE.Matrix4();
-
-    GARDEN_TREE_DECOR.group?.updateMatrixWorld(true);
-
-    const wm=new THREE.Matrix4();
-    const wp=new THREE.Vector3();
-
-    ctx.fillStyle=COL.forest;
-    ctx.strokeStyle=COL.forestEdge;
-    ctx.lineWidth=.65;
-
-    for(const tree of GARDEN_TREE_DECOR.treeCollisionInstances){
-      if(!tree?.matrix) continue;
-
-      wm.copy(treeGroupMatrix).multiply(tree.matrix);
-      wp.setFromMatrixPosition(wm);
-
-      const q=worldToRadar(wp.x,wp.z);
-
-      if(q.x<-12 || q.x>w+12 || q.y<-12 || q.y>h+12) continue;
-
-      const crownRadius=Math.max(
-        2.0,
-        Math.min(4.2,(tree.radius||.35)*4.2)
-      );
-
-      ctx.beginPath();
-      ctx.arc(q.x,q.y,crownRadius,0,Math.PI*2);
-      ctx.fill();
-      ctx.stroke();
-    }
+    ctx.beginPath();
+    ctx.moveTo(farLeft.x,farLeft.y);
+    ctx.lineTo(farRight.x,farRight.y);
+    ctx.lineTo(infinityRight.x,infinityRight.y);
+    ctx.lineTo(infinityLeft.x,infinityLeft.y);
+    ctx.closePath();
+    ctx.fill();
 
     ctx.restore();
   }
 
-  const gardenAxisX=
-    (typeof GARDEN_DESIGN_AXIS!=="undefined" &&
-     Number.isFinite(GARDEN_DESIGN_AXIS.x))
-      ? GARDEN_DESIGN_AXIS.x
-      : 0.600;
+  // Inside the fence, keep the same green around the central concrete pavement.
 
-  const gardenWidth=MAP_CONFIG.garden.width;
-  const gardenHalfWidth=gardenWidth*.5;
-  const gardenFrontZ=MAP_CONFIG.garden.frontZ;
-  const gardenBackZ=MAP_CONFIG.garden.backZ;
-
+  // Left green strip between pavement and side fence.
   polygon([
-    [gardenAxisX-gardenHalfWidth,gardenFrontZ],
-    [gardenAxisX+gardenHalfWidth,gardenFrontZ],
-    [gardenAxisX+gardenHalfWidth,gardenBackZ],
-    [gardenAxisX-gardenHalfWidth,gardenBackZ]
-  ],COL.garden,COL.gardenEdge,1.7);
+    [fenceMinX,fenceFrontZ],
+    [concreteMinX,fenceFrontZ],
+    [concreteMinX,fenceBackZ],
+    [fenceMinX,fenceBackZ]
+  ],lawn,lawnEdge,.8);
 
-  const flowerWidth=MAP_CONFIG.garden.flowerWidth;
-  const flowerDepth=MAP_CONFIG.garden.flowerDepth;
-  const flowerZ=MAP_CONFIG.garden.flowerZ;
-  const flowerOffsetX=MAP_CONFIG.garden.flowerOffsetX;
+  // Right green strip between pavement and side fence.
+  polygon([
+    [concreteMaxX,fenceFrontZ],
+    [fenceMaxX,fenceFrontZ],
+    [fenceMaxX,fenceBackZ],
+    [concreteMaxX,fenceBackZ]
+  ],lawn,lawnEdge,.8);
 
+  // Far green strip behind the end of the concrete.
+  polygon([
+    [concreteMinX,concreteBackZ],
+    [concreteMaxX,concreteBackZ],
+    [concreteMaxX,fenceBackZ],
+    [concreteMinX,fenceBackZ]
+  ],lawn,lawnEdge,.8);
+
+  // Actual concrete pavement.
+  polygon([
+    [concreteMinX,concreteFrontZ],
+    [concreteMaxX,concreteFrontZ],
+    [concreteMaxX,concreteBackZ],
+    [concreteMinX,concreteBackZ]
+  ],concrete,concreteEdge,1.5);
+
+  // Actual rose beds.
   rotatedRect(
-    gardenAxisX-flowerOffsetX,
-    flowerZ,
-    flowerWidth,
-    flowerDepth,
+    roseLeftX,
+    roseZ,
+    roseWidth,
+    roseDepth,
     0,
-    "#3f7047",
-    null,
-    0
+    lawn,
+    lawnEdge,
+    .8
   );
 
   rotatedRect(
-    gardenAxisX+flowerOffsetX,
-    flowerZ,
-    flowerWidth,
-    flowerDepth,
+    roseRightX,
+    roseZ,
+    roseWidth,
+    roseDepth,
     0,
-    "#3f7047",
-    null,
-    0
+    lawn,
+    lawnEdge,
+    .8
   );
 
-  const holeZMin=flowerZ-flowerDepth*.5;
-  const holeZMax=flowerZ+flowerDepth*.5;
+  // A few small roses inside the two real rose beds.
+  // Decorative only: positions remain inside the actual bed dimensions.
+  const minimapRoses=[
+    [roseLeftX-3.5,roseZ-2.7],
+    [roseLeftX,roseZ-2.0],
+    [roseLeftX+3.3,roseZ-2.6],
+    [roseLeftX-2.2,roseZ+2.3],
+    [roseLeftX+2.4,roseZ+2.5],
 
-  const leftHoleMin=
-    gardenAxisX-flowerOffsetX-flowerWidth*.5;
-  const leftHoleMax=
-    gardenAxisX-flowerOffsetX+flowerWidth*.5;
+    [roseRightX-3.5,roseZ-2.7],
+    [roseRightX,roseZ-2.0],
+    [roseRightX+3.3,roseZ-2.6],
+    [roseRightX-2.2,roseZ+2.3],
+    [roseRightX+2.4,roseZ+2.5]
+  ];
 
-  const rightHoleMin=
-    gardenAxisX+flowerOffsetX-flowerWidth*.5;
-  const rightHoleMax=
-    gardenAxisX+flowerOffsetX+flowerWidth*.5;
+  ctx.save();
+  for(let i=0;i<minimapRoses.length;i++){
+    const [rx,rz]=minimapRoses[i];
+    const p=worldToRadar(rx,rz);
 
-  rotatedRect(
-    gardenAxisX,
-    (gardenFrontZ+holeZMin)*.5,
-    gardenWidth,
-    holeZMin-gardenFrontZ,
-    0,
-    COL.gardenPath,
-    "#bcae91",
-    1
-  );
+    ctx.fillStyle=(i%2===0)?"#d76a78":"#b94e62";
+    ctx.strokeStyle="rgba(255,220,225,.70)";
+    ctx.lineWidth=.55;
 
-  rotatedRect(
-    gardenAxisX,
-    (holeZMax+gardenBackZ)*.5,
-    gardenWidth,
-    gardenBackZ-holeZMax,
-    0,
-    COL.gardenPath,
-    "#bcae91",
-    1
-  );
-
-  rotatedRect(
-    (gardenAxisX-gardenHalfWidth+leftHoleMin)*.5,
-    flowerZ,
-    leftHoleMin-(gardenAxisX-gardenHalfWidth),
-    flowerDepth,
-    0,
-    COL.gardenPath,
-    null,
-    1
-  );
-
-  rotatedRect(
-    gardenAxisX,
-    flowerZ,
-    rightHoleMin-leftHoleMax,
-    flowerDepth,
-    0,
-    COL.gardenPath,
-    null,
-    1
-  );
-
-  rotatedRect(
-    (rightHoleMax+gardenAxisX+gardenHalfWidth)*.5,
-    flowerZ,
-    (gardenAxisX+gardenHalfWidth)-rightHoleMax,
-    flowerDepth,
-    0,
-    COL.gardenPath,
-    null,
-    1
-  );
-
-  const activityOffsetX=MAP_CONFIG.garden.activityOffsetX;
-  const activityZ=MAP_CONFIG.garden.activityZ;
-
-  {
-    const p=worldToRadar(
-      gardenAxisX-activityOffsetX,
-      activityZ
-    );
-
-    ctx.save();
-    ctx.translate(p.x,p.y);
-    ctx.fillStyle="#536c4d";
-    ctx.strokeStyle="#9ab08e";
-    ctx.lineWidth=1.2;
     ctx.beginPath();
-    ctx.roundRect(-7,-5,14,10,2);
+    ctx.arc(p.x,p.y,1.65,0,Math.PI*2);
     ctx.fill();
     ctx.stroke();
-
-    ctx.strokeStyle="rgba(218,231,207,.72)";
-    ctx.lineWidth=1;
-    ctx.beginPath();
-    ctx.moveTo(-4,2);ctx.lineTo(-1,-3);
-    ctx.lineTo(2,2);ctx.lineTo(5,-3);
-    ctx.stroke();
-    ctx.restore();
   }
+  ctx.restore();
 
-  {
-    const p=worldToRadar(
-      gardenAxisX+activityOffsetX,
-      activityZ
-    );
+  // ------------------------------------------------------------
+  // GARDEN TREES · SIMPLE STYLIZED PINE ICONS
+  // One icon per side, matching the requested triangular tree symbol.
+  // ------------------------------------------------------------
+  function drawStylizedGardenTree(worldX,worldZ){
+    const p=worldToRadar(worldX,worldZ);
 
     ctx.save();
-    ctx.translate(p.x,p.y);
+    ctx.fillStyle="#111111";
 
-    ctx.fillStyle="#766e64";
-    ctx.strokeStyle="#c1b6a6";
-    ctx.lineWidth=1.2;
+    // upper triangle
     ctx.beginPath();
-    ctx.arc(0,0,5.6,0,Math.PI*2);
+    ctx.moveTo(p.x, p.y-8);
+    ctx.lineTo(p.x-4.2, p.y-1.5);
+    ctx.lineTo(p.x+4.2, p.y-1.5);
+    ctx.closePath();
     ctx.fill();
-    ctx.stroke();
 
-    ctx.strokeStyle="rgba(210,224,238,.82)";
-    ctx.lineWidth=1.2;
+    // lower triangle
     ctx.beginPath();
-    ctx.moveTo(4,-5);
-    ctx.lineTo(8,-9);
-    ctx.moveTo(6,-7);
-    ctx.lineTo(9,-4);
-    ctx.stroke();
+    ctx.moveTo(p.x, p.y-3.2);
+    ctx.lineTo(p.x-5.5, p.y+5.2);
+    ctx.lineTo(p.x+5.5, p.y+5.2);
+    ctx.closePath();
+    ctx.fill();
+
+    // small trunk
+    ctx.fillRect(p.x-1.1, p.y+4.8, 2.2, 3.4);
 
     ctx.restore();
   }
 
-  let fountainX=gardenAxisX;
-  let fountainZ=MAP_CONFIG.garden.fountainZ;
+  // Three stylized trees only:
+  // two on the left, one on the right.
+  drawStylizedGardenTree(-64.5, 92.0);
+  drawStylizedGardenTree(-64.5,132.0);
 
-  if(
-    typeof GARDEN_FEATURES!=="undefined" &&
-    GARDEN_FEATURES.fountain?.visible
-  ){
-    const fp=new THREE.Vector3();
-    GARDEN_FEATURES.fountain.getWorldPosition(fp);
-    fountainX=gardenAxisX; 
-    fountainZ=fp.z;
-  }
+  drawStylizedGardenTree( 64.5,108.0);
 
+  // ------------------------------------------------------------
+  // FOUNTAIN
+  // Real current position from the HTML:
+  // X 0.600, Z 113.194
+  // ------------------------------------------------------------
   {
-    const fountainMap=worldToRadar(fountainX,fountainZ);
+    const fountainMap=worldToRadar(0.600,113.194);
 
     ctx.save();
-
     ctx.fillStyle="#456d82";
     ctx.strokeStyle="#c0dce6";
-    ctx.lineWidth=1.3;
+    ctx.lineWidth=1.2;
 
     ctx.beginPath();
-    ctx.arc(fountainMap.x,fountainMap.y,8.4,0,Math.PI*2);
+    ctx.arc(fountainMap.x,fountainMap.y,6.0,0,Math.PI*2);
     ctx.fill();
     ctx.stroke();
 
-    ctx.fillStyle="#6f9daf";
-    ctx.strokeStyle="rgba(214,238,246,.74)";
-    ctx.lineWidth=1;
-
+    ctx.fillStyle="#7fa9b9";
     ctx.beginPath();
-    ctx.arc(fountainMap.x,fountainMap.y,5.2,0,Math.PI*2);
+    ctx.arc(fountainMap.x,fountainMap.y,2.5,0,Math.PI*2);
     ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle="#dff5fb";
-    ctx.beginPath();
-    ctx.arc(fountainMap.x,fountainMap.y,1.8,0,Math.PI*2);
-    ctx.fill();
-
-    ctx.strokeStyle="rgba(230,248,252,.78)";
-    ctx.lineWidth=1;
-    for(let n=0;n<8;n++){
-      const a=n*Math.PI*.25;
-      ctx.beginPath();
-      ctx.moveTo(
-        fountainMap.x+2.5*Math.cos(a),
-        fountainMap.y+2.5*Math.sin(a)
-      );
-      ctx.lineTo(
-        fountainMap.x+6.2*Math.cos(a),
-        fountainMap.y+6.2*Math.sin(a)
-      );
-      ctx.stroke();
-    }
 
     ctx.restore();
   }
 
-  {
-    const e=worldToRadar(gardenAxisX,gardenFrontZ);
-    ctx.save();
-    ctx.strokeStyle="rgba(231,224,202,.88)";
-    ctx.lineWidth=2;
-    ctx.beginPath();
-    ctx.moveTo(e.x-8,e.y);
-    ctx.lineTo(e.x-3,e.y);
-    ctx.moveTo(e.x+3,e.y);
-    ctx.lineTo(e.x+8,e.y);
-    ctx.stroke();
-    ctx.restore();
-  }
+  // Strong final garden/fence outline so green visibly ENDS here.
+  polygon([
+    [fenceMinX,fenceFrontZ],
+    [fenceMaxX,fenceFrontZ],
+    [fenceMaxX,fenceBackZ],
+    [fenceMinX,fenceBackZ]
+  ],null,"rgba(214,202,173,.92)",2.2);
 
+  // Keep only the location name; no exhibition icons.
   drawWorldLabel(
     gardenAxisX,
-    gardenFrontZ+5.5,
+    70.5,
     "GARDEN",
     .98
   );
@@ -588,11 +624,19 @@ export function drawMinimap(deps){
 
   drawPulsingTaskDiamond(getEasyTaskDestination());
 
+  // Building names centered on the actual room footprints.
+  drawWorldLabel(
+    SCENE_ENV_CONFIG.leftRoomCenterX,
+    SCENE_ENV_CONFIG.roomCenterZ,
+    "CASINO",
+    .95
+  );
+
   drawWorldLabel(
     SCENE_ENV_CONFIG.rightRoomCenterX,
     SCENE_ENV_CONFIG.roomCenterZ,
     "JEWELRY",
-    .72
+    .95
   );
 
   ctx.save();

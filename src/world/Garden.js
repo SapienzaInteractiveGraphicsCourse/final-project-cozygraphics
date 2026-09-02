@@ -40,6 +40,202 @@ export let GARDEN_EXHIBITION_LAMPS=null;
 let flatGardenTexturePlane=null;
 export let gardenFenceSource=null;
 
+// Single source of truth for every Garden grass surface.
+export let GARDEN_GRASS_COLOR=0x6F756F;
+export let GARDEN_GRASS_BRIGHTNESS=.97;
+export const GARDEN_GRASS_PLANE_SIZE={width:360,depth:260};
+export const GARDEN_GRASS_WORLD_DENSITY={
+  repeatXPerMeter:21/760,
+  repeatZPerMeter:90/3400
+};
+export let GARDEN_GRASS_TEXTURE_SIZE=.16;
+
+
+export const GARDEN_GRASS_SEAM_OVERLAP=.02;
+
+function makeUniformGardenGrassTexture(__gardenCtx,width,depth){
+  const source=__gardenCtx.outdoorGrassTexture;
+  if(!source) return null;
+
+  const tex=source.clone();
+  tex.wrapS=__gardenCtx.THREE.RepeatWrapping;
+  tex.wrapT=__gardenCtx.THREE.RepeatWrapping;
+  const textureSize=Math.max(.10,GARDEN_GRASS_TEXTURE_SIZE);
+  tex.repeat.set(
+    Math.max(
+      .01,
+      Math.abs(width)*GARDEN_GRASS_WORLD_DENSITY.repeatXPerMeter/textureSize
+    ),
+    Math.max(
+      .01,
+      Math.abs(depth)*GARDEN_GRASS_WORLD_DENSITY.repeatZPerMeter/textureSize
+    )
+  );
+  tex.needsUpdate=true;
+  tex.userData={...(tex.userData||{}),uniformGardenGrass:true};
+  return tex;
+}
+
+function makeUniformGardenGrassMaterial(__gardenCtx,width,depth){
+  const THREE=__gardenCtx.THREE;
+  const color=new THREE.Color(GARDEN_GRASS_COLOR)
+    .multiplyScalar(GARDEN_GRASS_BRIGHTNESS);
+
+  const mat=new THREE.MeshBasicMaterial({
+    map:makeUniformGardenGrassTexture(__gardenCtx,width,depth),
+    color,
+    side:THREE.DoubleSide,
+    fog:false,
+    toneMapped:false
+  });
+
+  mat.name="uniform_garden_grass_material";
+  mat.userData.uniformGardenGrass=true;
+  return mat;
+}
+
+
+export function setGardenGrassColor(__gardenCtx, value, brightness=GARDEN_GRASS_BRIGHTNESS){
+  let hex;
+
+  if(typeof value==="string"){
+    const clean=value.trim().replace(/^#/,"");
+    if(!/^[0-9a-fA-F]{6}$/.test(clean)){
+      return GARDEN_GRASS_COLOR;
+    }
+    hex=parseInt(clean,16);
+  }else{
+    hex=Number(value);
+  }
+
+  if(!Number.isFinite(hex)) return GARDEN_GRASS_COLOR;
+
+  GARDEN_GRASS_COLOR=
+    Math.max(0,Math.min(0xffffff,hex|0));
+
+  GARDEN_GRASS_BRIGHTNESS=
+    Math.max(.10,Math.min(1.80,Number(brightness)||1));
+
+  const outdoorGrassTexture=__gardenCtx.outdoorGrassTexture;
+  const THREE=__gardenCtx.THREE;
+
+  const applyToMaterial=material=>{
+    if(!material) return;
+
+    const mats=
+      Array.isArray(material)
+        ? material
+        : [material];
+
+    for(const mat of mats){
+      if(!mat) continue;
+
+      if(outdoorGrassTexture && !mat.map){
+        mat.map=outdoorGrassTexture;
+      }
+
+      if(mat.color){
+        const c=new THREE.Color(GARDEN_GRASS_COLOR);
+        c.multiplyScalar(GARDEN_GRASS_BRIGHTNESS);
+        mat.color.copy(c);
+      }
+
+      if(mat.emissive){
+        mat.emissive.setHex(0x000000);
+      }
+
+      if("emissiveIntensity" in mat){
+        mat.emissiveIntensity=0;
+      }
+
+      mat.needsUpdate=true;
+    }
+  };
+
+  if(flatGardenTexturePlane){
+    applyToMaterial(flatGardenTexturePlane.material);
+  }
+
+  GARDEN_SIDE_GRASS_FILL?.group?.traverse?.(obj=>{
+    if(obj?.isMesh) applyToMaterial(obj.material);
+  });
+  __gardenCtx.scene?.traverse?.(obj=>{
+    if(!obj?.isMesh || !obj.material) return;
+    for(const mat of (Array.isArray(obj.material)?obj.material:[obj.material])){
+      const samePng=!!outdoorGrassTexture?.image && mat?.map?.image===outdoorGrassTexture.image;
+      if(samePng || mat?.userData?.uniformGardenGrass) applyToMaterial(mat);
+    }
+  });
+
+  return GARDEN_GRASS_COLOR;
+}
+
+export function setGardenGrassBrightness(__gardenCtx, brightness){
+  return setGardenGrassColor(
+    __gardenCtx,
+    GARDEN_GRASS_COLOR,
+    brightness
+  );
+}
+
+export function getGardenGrassBrightness(){
+  return GARDEN_GRASS_BRIGHTNESS;
+}
+
+export function getGardenGrassColorHex(){
+  return `#${GARDEN_GRASS_COLOR
+    .toString(16)
+    .padStart(6,"0")
+    .toUpperCase()}`;
+}
+
+
+export const GARDEN_FRONT_CONCRETE_STRIP={
+  mesh:null,
+  x:0.50,
+  y:.060,
+  z:59.80,
+  width:84.30,
+  depth:3.10,
+  tileSize:5.00,
+  rotationY:0
+};
+
+export function rebuildGardenFrontConcreteStrip(ctx){
+  const {THREE,scene,unifiedSidewalkMat}=ctx;
+  if(GARDEN_FRONT_CONCRETE_STRIP.mesh){
+    const old=GARDEN_FRONT_CONCRETE_STRIP.mesh;
+    old.parent?.remove(old);
+    old.geometry?.dispose?.();
+  }
+  const width=Math.max(.10,GARDEN_FRONT_CONCRETE_STRIP.width);
+  const depth=Math.max(.10,GARDEN_FRONT_CONCRETE_STRIP.depth);
+  const geometry=new THREE.PlaneGeometry(width,depth);
+  const pos=geometry.attributes.position;
+  const uv=new Float32Array(pos.count*2);
+  const tile=GARDEN_FRONT_CONCRETE_STRIP.tileSize;
+  for(let i=0;i<pos.count;i++){
+    uv[i*2]=(pos.getX(i)+width*.5)/tile;
+    uv[i*2+1]=(pos.getY(i)+depth*.5)/tile;
+  }
+  geometry.setAttribute("uv",new THREE.BufferAttribute(uv,2));
+  const mesh=new THREE.Mesh(geometry,unifiedSidewalkMat);
+  mesh.name="garden_front_editable_concrete_strip";
+  mesh.rotation.x=-Math.PI/2;
+  mesh.rotation.z=THREE.MathUtils.degToRad(GARDEN_FRONT_CONCRETE_STRIP.rotationY);
+  mesh.position.set(
+    GARDEN_FRONT_CONCRETE_STRIP.x,
+    GARDEN_FRONT_CONCRETE_STRIP.y,
+    GARDEN_FRONT_CONCRETE_STRIP.z
+  );
+  mesh.castShadow=false;
+  mesh.receiveShadow=false;
+  mesh.renderOrder=13;
+  scene.add(mesh);
+  GARDEN_FRONT_CONCRETE_STRIP.mesh=mesh;
+  return mesh;
+}
+
 export function initGardenRuntimeState(THREE,scene){
   CEREMONY_GARDEN={
   group:new THREE.Group(),
@@ -140,7 +336,13 @@ export function initGardenRuntimeState(THREE,scene){
   GARDEN_BOUNDARY_FENCE={
   group:null,
   offset:149.0,
-  height:3.0
+  height:3.0,
+  inward:.08,
+    edit:{
+    left:{x:-1.70,z:1.30,length:0.00},
+    right:{x:1.70,z:1.30,length:0.00},
+    back:{x:2.00,z:3.50,length:-0.30}
+  }
 };
   GARDEN_WIDTH_RUNTIME={
   roseLeftX:-23.100,
@@ -172,9 +374,9 @@ export function initGardenRuntimeState(THREE,scene){
   GARDEN_FLOWER_FENCE_EDIT={
   tulips:{
     front:{x:-26.000,z:76.6890,length:12.0000},
-    back:{x:-26.000,z:88.1890,length:12.0000},
-    left:{x:-32.0000,z:82.4390,length:11.5000},
-    right:{x:-20.0000,z:82.4390,length:11.5000}
+    back:{x:0.20,z:2.50,length:3.00},
+    left:{x:-1.40,z:2.60,length:0.00},
+    right:{x:1.70,z:2.70,length:0.00}
   },
   roses:{
     front:{x:26.000,z:76.6890,length:12.0000},
@@ -217,6 +419,7 @@ export function initGardenRuntimeState(THREE,scene){
   GARDEN_TREE_DECOR.group.name="garden_fence_tree_backdrop";
   scene.add(GARDEN_TREE_DECOR.group);
 return {
+    GARDEN_FRONT_CONCRETE_STRIP,
     CEREMONY_GARDEN,
     GARDEN_ALIGNMENT,
     FLOWER_EXHIBITS,
@@ -409,6 +612,9 @@ export function makeGardenExhibitSign(__gardenCtx, kind,label,subtitle,x,z){
   ctx.fillText(subtitle,512,218);
 
   const tex=new THREE.CanvasTexture(canvas);
+  tex.generateMipmaps=false;
+  tex.minFilter=THREE.LinearFilter;
+  tex.magFilter=THREE.LinearFilter;
   tex.colorSpace=THREE.SRGBColorSpace;
 
   const face=new THREE.Mesh(
@@ -484,8 +690,6 @@ export function removeRightRoseSignOnly(__gardenCtx){
 export function buildGardenSideGrassFill(__gardenCtx){
   const GARDEN_SIDE_GRASS_FILL=__gardenCtx.GARDEN_SIDE_GRASS_FILL;
   const THREE=__gardenCtx.THREE;
-  const garden=__gardenCtx.garden;
-  const scene=__gardenCtx.scene;
 
   GARDEN_SIDE_GRASS_FILL.group.clear();
 
@@ -498,58 +702,48 @@ export function buildGardenSideGrassFill(__gardenCtx){
   const depth=zMax-zMin;
   const centerZ=(zMin+zMax)*.5;
 
-  // Match the existing garden grass visually using the same kind of material.
-  // If the main grass material exists, clone it; otherwise use a matching fallback.
-  let baseMat=null;
-  scene.traverse(o=>{
-    if(baseMat || !o?.isMesh || !o.material) return;
-    const n=String(o.name||"").toLowerCase();
-    if(n.includes("grass") || n.includes("lawn")){
-      const m=Array.isArray(o.material)?o.material[0]:o.material;
-      if(m) baseMat=m;
-    }
-  });
-
-  const makeMat=()=>{
-    if(baseMat){
-      const m=baseMat.clone();
-      m.needsUpdate=true;
-      return m;
-    }
-    return new THREE.MeshStandardMaterial({
-      color:0x315f2b,
-      roughness:.96,
-      metalness:0
-    });
-  };
-
   const leftW=newLeft-oldLeft;
   const rightW=oldRight-newRight;
 
   if(leftW>.001){
     const mesh=new THREE.Mesh(
-      new THREE.PlaneGeometry(leftW,depth),
-      makeMat()
+      new THREE.PlaneGeometry(
+        leftW+GARDEN_GRASS_SEAM_OVERLAP*2,
+        depth+GARDEN_GRASS_SEAM_OVERLAP*2
+      ),
+      makeUniformGardenGrassMaterial(
+        __gardenCtx,
+        leftW+GARDEN_GRASS_SEAM_OVERLAP*2,
+        depth+GARDEN_GRASS_SEAM_OVERLAP*2
+      )
     );
     mesh.name="garden_grass_fill_left";
     mesh.rotation.x=-Math.PI/2;
     mesh.position.set((oldLeft+newLeft)*.5,.018,centerZ);
     mesh.receiveShadow=true;
+    mesh.castShadow=false;
     GARDEN_SIDE_GRASS_FILL.group.add(mesh);
   }
 
   if(rightW>.001){
     const mesh=new THREE.Mesh(
-      new THREE.PlaneGeometry(rightW,depth),
-      makeMat()
+      new THREE.PlaneGeometry(
+        rightW+GARDEN_GRASS_SEAM_OVERLAP*2,
+        depth+GARDEN_GRASS_SEAM_OVERLAP*2
+      ),
+      makeUniformGardenGrassMaterial(
+        __gardenCtx,
+        rightW+GARDEN_GRASS_SEAM_OVERLAP*2,
+        depth+GARDEN_GRASS_SEAM_OVERLAP*2
+      )
     );
     mesh.name="garden_grass_fill_right";
     mesh.rotation.x=-Math.PI/2;
     mesh.position.set((newRight+oldRight)*.5,.018,centerZ);
     mesh.receiveShadow=true;
+    mesh.castShadow=false;
     GARDEN_SIDE_GRASS_FILL.group.add(mesh);
   }
-
 }
 
 export function rebuildGardenConcreteSkeletonFromPerimeter(__gardenCtx){
@@ -1101,6 +1295,9 @@ export function createMuseumLabel(__gardenCtx, title,subtitle){
   ctx.fillText("PRIVATE NIGHT EXHIBITION · CASINO GARDEN",600,393);
 
   const posterTexture=new THREE.CanvasTexture(canvas);
+  posterTexture.generateMipmaps=false;
+  posterTexture.minFilter=THREE.LinearFilter;
+  posterTexture.magFilter=THREE.LinearFilter;
   posterTexture.colorSpace=THREE.SRGBColorSpace;
   posterTexture.needsUpdate=true;
 
@@ -1659,11 +1856,15 @@ export function buildGardenBoundaryFence(__gardenCtx){
   const step=
     Math.max(.35,pieceLength*.94);
 
-  const gardenMinX=-71.0;
-  const gardenMaxX=71.0;
+  const inward=
+    Number.isFinite(GARDEN_BOUNDARY_FENCE.inward)
+      ? GARDEN_BOUNDARY_FENCE.inward
+      : .08;
+  const gardenMinX=-71.0+inward;
+  const gardenMaxX=71.0-inward;
 
-  const gardenFarZ=161.012;
-  const gardenNearZ=56.900;
+  const gardenFarZ=161.012-inward;
+  const gardenNearZ=56.900+inward;
 
   const matrices=[];
   const colliders=[];
@@ -1758,25 +1959,40 @@ export function buildGardenBoundaryFence(__gardenCtx){
     }
   }
 
+  const edit=GARDEN_BOUNDARY_FENCE.edit||{};
+  const leftEdit=edit.left||{x:0,z:0,length:0};
+  const rightEdit=edit.right||{x:0,z:0,length:0};
+  const backEdit=edit.back||{x:0,z:0,length:0};
+
+  // LEFT / RIGHT: X moves the whole side laterally, Z moves it
+  // forward/backward, LENGTH extends/reduces the near end.
+  const leftFarZ=gardenFarZ+leftEdit.z;
+  const leftNearZ=gardenNearZ+leftEdit.z-leftEdit.length;
+  const rightFarZ=gardenFarZ+rightEdit.z;
+  const rightNearZ=gardenNearZ+rightEdit.z-rightEdit.length;
+
   addLineTrimmed(
-    gardenMinX,gardenFarZ,
-    gardenMinX,gardenNearZ,
+    gardenMinX+leftEdit.x,leftFarZ,
+    gardenMinX+leftEdit.x,leftNearZ,
     "left_side",
     0,0
   );
 
   addLineTrimmed(
-    gardenMaxX,gardenFarZ,
-    gardenMaxX,gardenNearZ,
+    gardenMaxX+rightEdit.x,rightFarZ,
+    gardenMaxX+rightEdit.x,rightNearZ,
     "right_side",
     0,0
   );
 
+  // BACK: X/Z move the whole back fence. LENGTH expands/contracts it
+  // symmetrically, so its centre stays aligned while tuning.
+  const backHalfExtra=backEdit.length*.5;
   addLineTrimmed(
-    gardenMinX-step*.35,
-    gardenFarZ,
-    gardenMaxX+step*.35,
-    gardenFarZ,
+    gardenMinX-step*.35+backEdit.x-backHalfExtra,
+    gardenFarZ+backEdit.z,
+    gardenMaxX+step*.35+backEdit.x+backHalfExtra,
+    gardenFarZ+backEdit.z,
     "far_join",
     0,0
   );
@@ -2130,10 +2346,12 @@ export function buildGardenFenceTreeBackdrop(__gardenCtx, source){
   const srcSize=srcBox.getSize(new THREE.Vector3());
   if(srcSize.y<=.001) return;
 
+  // Dark night palette: still 3 distinct variants, but all are darker.
+  // [leaves, bark, branches]
   const variants=[
-    [0x315f2b,0x5b3925,0x493020],
-    [0x416b2c,0x69452c,0x593823],
-    [0x527f38,0x4d3426,0x3f2b20]
+    [0x17361d,0x352419,0x291c16],
+    [0x1d4223,0x422b1d,0x332219],
+    [0x28512c,0x39271d,0x2e2018]
   ].map((colors,index)=>{
     const root=source.clone(true);
     cloneMaterials(root);
@@ -2149,53 +2367,53 @@ export function buildGardenFenceTreeBackdrop(__gardenCtx, source){
     // LEFT X=-71.000 | RIGHT X=71.000 | FRONT Z=56.900 | BACK Z=161.012
     // Exactly 3 trees remain clearly INSIDE. Every other tree is moved well AFTER the fence,
     // with extra clearance so large crowns/branches do not visually enter the fenced garden.
-    [1,-100.000000000,0.050518145,67.000000000,18.756384078,5.569429386,20.785016182,23.445480097,19.066285240],
-    [0,-105.000000000,0.032938517,71.650000000,17.592314693,1.224960796,18.295401231,21.990393366,16.134079153],
-    [0,-110.000000000,0.040964017,76.300000000,12.988786932,6.199192603,11.074723614,16.235983665,13.619873532],
-    [1,-100.000000000,0.030474800,80.950000000,10.694141812,3.236797968,10.031454068,13.367677265,11.941418028],
-    [0,-105.000000000,0.046672534,85.600000000,17.003235517,0.533687358,16.020542526,21.254044396,17.247576346],
-    [2,-110.000000000,0.037894676,90.250000000,13.387191230,3.779392121,14.890707151,16.733989037,13.198568391],
-    [1,-100.000000000,0.040935958,94.900000000,14.549783493,1.578325851,12.750530023,18.187229366,13.827543146],
-    [0,100.000000000,0.029379639,69.000000000,17.679816588,2.268055987,18.618731138,22.099770735,17.789133273],
-    [0,105.000000000,0.056082185,73.650000000,15.668585752,2.289611007,17.814165158,19.585732189,15.319487270],
-    [0,110.000000000,0.042599101,78.300000000,12.796794900,5.857358080,11.728914074,15.995993625,13.615198790],
-    [1,100.000000000,0.051111093,82.950000000,17.640980346,4.521847818,16.513545061,22.051225433,19.322929098],
-    [2,105.000000000,0.035639418,87.600000000,15.540101352,2.950156208,17.254606473,19.425126690,14.592017826],
-    [1,110.000000000,0.034739658,92.250000000,14.435582322,1.185063017,12.526574847,18.044477902,14.588287633],
-    [1,-105.000000000,0.030602927,99.550000000,13.408056242,3.618763994,15.148930722,16.760070303,13.384908157],
-    [2,-110.000000000,0.041620048,104.200000000,10.594535163,0.730552134,9.094274890,13.243168954,9.777809016],
-    [0,-100.000000000,0.049199716,108.850000000,19.673645331,5.979094779,20.032114623,24.592056664,21.576185520],
-    [1,-82.000000000,0.056424145,190.000000000,13.279461836,6.114613984,15.191719531,16.599327295,12.597739607],
-    [0,-63.800000000,0.054383526,190.000000000,13.065237686,1.140869949,12.473620080,16.331547108,13.967249551],
-    [2,-45.600000000,0.028507718,190.000000000,16.940070166,5.931387817,20.483787676,21.175087707,18.131876085],
-    [0,-27.400000000,0.029428291,190.000000000,21.768843204,1.939310006,20.742673261,27.211054006,20.919593746],
-    [1,-9.200000000,0.037927557,190.000000000,18.799000779,2.678301518,19.897223280,23.498750974,17.461776536],
-    [2,9.000000000,0.026495995,190.000000000,15.037579849,1.466199612,18.337774871,18.796974811,15.329800324],
-    [0,100.000000000,0.040138605,96.900000000,18.346637892,1.288764149,18.039093214,22.933297365,20.005721126],
-    [2,105.000000000,0.046970187,101.550000000,14.995554745,4.000832551,13.435110894,18.744443431,14.280267806],
-    [2,110.000000000,0.036717739,106.200000000,21.564149160,0.711182995,26.121892233,26.955186450,23.161890561],
-    [1,100.000000000,0.049497212,110.850000000,15.307591626,2.934097899,15.377450801,19.134489532,14.303007028],
-    [1,-53.000000000,0.032086425,94.000000000,10.687858083,0.145703191,10.159351096,13.359822604,10.625222311],
-    [0,105.000000000,0.042039788,115.500000000,12.070692213,2.168547817,10.609696582,15.088365266,11.017791436],
-    [2,-105.000000000,0.028966187,113.500000000,15.052516393,0.713042166,14.148669116,18.815645492,15.518273727],
-    [1,53.000000000,0.043530934,112.000000000,10.106390633,1.356926775,10.044380568,12.632988292,10.786245725],
-    [2,-53.000000000,0.035138350,132.000000000,16.059951105,4.994938681,14.375408027,20.074938882,15.926463335],
-    [0,110.000000000,0.039168549,120.150000000,11.100076279,5.222790688,9.821533562,13.875095349,10.174168070],
-    [1,-110.000000000,0.038707486,118.150000000,12.344604933,1.819415127,12.871293839,15.430756166,13.503032382],
-    [0,100.000000000,0.025804181,124.800000000,11.373109676,1.746013634,10.953733789,14.216387095,11.192285878],
-    [0,-100.000000000,0.059675553,122.800000000,11.975640265,1.804473495,11.780597277,14.969550332,11.382851690],
-    [1,27.200000000,0.053584465,190.000000000,15.780490497,2.358026364,14.606426675,19.725613122,14.623702531],
-    [0,45.400000000,0.036745773,190.000000000,12.428851726,0.103149183,10.991981188,15.536064657,11.227213281],
-    [0,63.600000000,0.059203618,190.000000000,10.377278912,3.724676958,10.946245451,12.971598640,9.341344706],
-    [1,81.800000000,0.057564448,190.000000000,15.037853403,0.746931449,13.738181455,18.797316754,15.483612957],
-    [2,-105.000000000,0.039459026,127.450000000,13.837500000,0.400000000,12.730500000,17.296875000,14.127633903],
-    [2,105.000000000,0.050153543,129.450000000,12.487500000,1.600000000,10.739250000,15.609375000,13.502621948],
-    [1,-110.000000000,0.047868330,132.100000000,15.363000000,2.700000000,15.670260000,19.203750000,13.872001505],
-    [0,110.000000000,0.037821067,134.100000000,14.512500000,4.100000000,13.786875000,18.140625000,15.272541340],
-    [0,-100.000000000,0.043402195,136.750000000,12.150000000,5.000000000,10.692000000,15.187500000,11.412885021],
-    [1,100.000000000,0.027955476,138.750000000,13.500000000,0.900000000,12.150000000,16.875000000,13.187530048],
-    [2,105.000000000,0.040467355,143.400000000,14.175000000,1.350000000,13.041000000,17.718750000,14.241169310],
-    [0,110.000000000,0.057453856,148.050000000,12.987000000,4.450000000,11.428560000,16.233750000,11.944634236]
+    [1,-100.000000000,0.050518145,67.000000000,22.507660894,5.569429386,22.863517800,28.134576117,20.972913764],
+    [0,-105.000000000,0.032938517,71.650000000,21.110777631,1.224960796,20.124941354,26.388472039,17.747487068],
+    [0,-110.000000000,0.040964017,76.300000000,15.586544318,6.199192603,12.182195975,19.483180398,14.981860885],
+    [1,-100.000000000,0.030474800,80.950000000,12.832970174,3.236797968,11.034599475,16.041212718,13.135559831],
+    [0,-105.000000000,0.046672534,85.600000000,20.403882621,0.533687358,17.622596779,25.504853275,18.972333981],
+    [2,-110.000000000,0.037894676,90.250000000,16.064629476,3.779392121,16.379777866,20.080786845,14.518425230],
+    [1,-100.000000000,0.040935958,94.900000000,17.459740191,1.578325851,14.025583025,21.824675239,15.210297461],
+    [0,100.000000000,0.029379639,69.000000000,21.215779906,2.268055987,20.480604252,26.519724882,19.568046600],
+    [0,105.000000000,0.056082185,73.650000000,18.802302902,2.289611007,19.595581674,23.502878627,16.851435997],
+    [0,110.000000000,0.042599101,78.300000000,15.356153880,5.857358080,12.901805481,19.195192350,14.976718669],
+    [1,100.000000000,0.051111093,82.950000000,21.169176415,4.521847818,18.164899567,26.461470519,21.255222008],
+    [2,105.000000000,0.035639418,87.600000000,18.648121622,2.950156208,18.980067120,23.310152028,16.051219609],
+    [1,110.000000000,0.034739658,92.250000000,17.322698786,1.185063017,13.779232332,21.653373482,16.047116396],
+    [1,-105.000000000,0.030602927,99.550000000,16.089667490,3.618763994,16.663823794,20.112084363,14.723398973],
+    [2,-110.000000000,0.041620048,104.200000000,12.713442195,0.730552134,10.003702379,15.891802745,10.755589918],
+    [0,-100.000000000,0.049199716,108.850000000,23.608374397,5.979094779,22.035326085,29.510467997,23.733804072],
+    [1,-82.000000000,0.056424145,190.000000000,15.935354203,6.114613984,16.710891484,19.919192754,13.857513568],
+    [0,-63.800000000,0.054383526,190.000000000,15.678285223,1.140869949,13.720982088,19.597856530,15.363974506],
+    [2,-45.600000000,0.028507718,190.000000000,20.328084199,5.931387817,22.532166444,25.410105248,19.945063693],
+    [0,-27.400000000,0.029428291,190.000000000,26.122611845,1.939310006,22.816940587,32.653264807,23.011553121],
+    [1,-9.200000000,0.037927557,190.000000000,22.558800935,2.678301518,21.886945608,28.198501169,19.207954190],
+    [2,9.000000000,0.026495995,190.000000000,18.045095819,1.466199612,20.171552358,22.556369773,16.862780356],
+    [0,100.000000000,0.040138605,96.900000000,22.015965470,1.288764149,19.843002535,27.519956838,22.006293239],
+    [2,105.000000000,0.046970187,101.550000000,17.994665694,4.000832551,14.778621983,22.493332118,15.708294587],
+    [2,110.000000000,0.036717739,106.200000000,25.876978992,0.711182995,28.734081456,32.346223740,25.478079617],
+    [1,100.000000000,0.049497212,110.850000000,18.369109951,2.934097899,16.915195881,22.961387438,15.733307731],
+    [1,-53.000000000,0.032086425,94.000000000,12.825429699,0.145703191,11.175286206,16.031787125,11.687744542],
+    [0,105.000000000,0.042039788,115.500000000,14.484830655,2.168547817,11.670666240,18.106038319,12.119570580],
+    [2,-105.000000000,0.028966187,113.500000000,18.063019672,0.713042166,15.563536028,22.578774590,17.070101100],
+    [1,53.000000000,0.043530934,112.000000000,12.127668760,1.356926775,11.048818625,15.159585950,11.864870298],
+    [2,-53.000000000,0.035138350,132.000000000,19.271941326,4.994938681,15.812948830,24.089926658,17.519109669],
+    [0,110.000000000,0.039168549,120.150000000,13.320091534,5.222790688,10.803686918,16.650114419,11.191584877],
+    [1,-110.000000000,0.038707486,118.150000000,14.813525919,1.819415127,14.158423223,18.516907399,14.853335620],
+    [0,100.000000000,0.025804181,124.800000000,13.647731611,1.746013634,12.049107168,17.059664514,12.311514466],
+    [0,-100.000000000,0.059675553,122.800000000,14.370768318,1.804473495,12.958657005,17.963460398,12.521136859],
+    [1,27.200000000,0.053584465,190.000000000,18.936588597,2.358026364,16.067069343,23.670735746,16.086072784],
+    [0,45.400000000,0.036745773,190.000000000,14.914622071,0.103149183,12.091179307,18.643277589,12.349934609],
+    [0,63.600000000,0.059203618,190.000000000,12.452734694,3.724676958,12.040869996,15.565918368,10.275479177],
+    [1,81.800000000,0.057564448,190.000000000,18.045424083,0.746931449,15.111999601,22.556780105,17.031974253],
+    [2,-105.000000000,0.039459026,127.450000000,16.605000000,0.400000000,14.003550000,20.756250000,15.540397293],
+    [2,105.000000000,0.050153543,129.450000000,14.985000000,1.600000000,11.813175000,18.731250000,14.852884143],
+    [1,-110.000000000,0.047868330,132.100000000,18.435600000,2.700000000,17.237286000,23.044500000,15.259201656],
+    [0,110.000000000,0.037821067,134.100000000,17.415000000,4.100000000,15.165562500,21.768750000,16.799795474],
+    [0,-100.000000000,0.043402195,136.750000000,14.580000000,5.000000000,11.761200000,18.225000000,12.554173523],
+    [1,100.000000000,0.027955476,138.750000000,16.200000000,0.900000000,13.365000000,20.250000000,14.506283053],
+    [2,105.000000000,0.040467355,143.400000000,17.010000000,1.350000000,14.345100000,21.262500000,15.665286241],
+    [0,110.000000000,0.057453856,148.050000000,15.584400000,4.450000000,12.571416000,19.480500000,13.139097660]
   ];
 
   // Static tree matrix: no runtime random generation.
@@ -2473,7 +2691,9 @@ export function gardenTreeTint(__gardenCtx, root,leafHex,barkHex,branchHex){
         else if(n.includes("bark")) mat.color.setHex(barkHex);
         else if(n.includes("branch")) mat.color.setHex(branchHex);
       }
-      mat.roughness=Math.max(.72,mat.roughness??.85);
+      if(mat.emissive) mat.emissive.setHex(0x000000);
+      if("emissiveIntensity" in mat) mat.emissiveIntensity=0;
+      mat.roughness=Math.max(.82,mat.roughness??.90);
       mat.metalness=0;
       mat.needsUpdate=true;
       return mat;
@@ -2687,39 +2907,14 @@ export function tintPalm(__gardenCtx, model,type,index){
 }
 
 export function loadPalm(__gardenCtx, path,{name,type,x,z,height,rotation=0,index=0}){
-  const loadGLBFromCandidates=__gardenCtx.loadGLBFromCandidates;
-  const cloneMaterials=__gardenCtx.cloneMaterials;
-  const fitModelToHeight=__gardenCtx.fitModelToHeight;
-  const centerModelXZ=__gardenCtx.centerModelXZ;
-  const putModelOnFloor=__gardenCtx.putModelOnFloor;
-  const COASTAL_ASSETS=__gardenCtx.COASTAL_ASSETS;
-  const maxPerfFreeze=__gardenCtx.maxPerfFreeze;
-  const scene=__gardenCtx.scene;
-  const getCoastalGroundY=__gardenCtx.getCoastalGroundY;
-  const refreshGardenObjectCollisions=__gardenCtx.refreshGardenObjectCollisions;
 
-  loadGLBFromCandidates(
-    [path],
-    (gltf)=>{
-      const palm=gltf.scene;
-      palm.name=name;
-      cloneMaterials(palm);
-      fitModelToHeight(palm,height);
-      centerModelXZ(palm);
-      palm.rotation.y=rotation;
-      palm.position.set(x,0,z);
-      palm.updateMatrixWorld(true);
-      putModelOnFloor(palm,getCoastalGroundY(x,z));
-      tintPalm(__gardenCtx,palm,type,index);
-      palm.updateMatrixWorld(true);
-      scene.add(palm);
-      COASTAL_ASSETS.palms.push(palm);
-      refreshGardenObjectCollisions();
-    },
-    (error)=>console.error(`Errore caricando ${path}`,error)
-  );
+  // Palms are intentionally disabled for the current Garden design.
+  // Do not load the GLB at all: zero scene objects, zero collisions,
+  // zero material/shadow work and no cleanup pass required later.
+  return null;
 
 }
+
 
 // ============================================================
 // Garden dismantle STEP 5 — larger Garden-only batch
@@ -2933,22 +3128,26 @@ export function applyApprovedGardenGateLeafTransforms(__gardenCtx){
   const right=GATE_PART_EDITORS?.rightLeaf || GATE_PART_EDITORS?.gateRight || GATE_PART_EDITORS?.right;
 
   if(left){
-    left.position.set(2.200,0.000,-2.600);
+    left.visible=true;
+    left.position.set(2.950,0.000,-2.950);
     left.rotation.set(
-      THREE.MathUtils.degToRad(-1.0),
-      THREE.MathUtils.degToRad(-64.0),
-      THREE.MathUtils.degToRad(-1.0)
+      0,
+      THREE.MathUtils.degToRad(-90.0),
+      0
     );
+    left.updateMatrix();
     left.updateMatrixWorld(true);
   }
 
   if(right){
-    right.position.set(-2.850,0.000,-6.800);
+    right.visible=true;
+    right.position.set(-3.300,0.000,-7.000);
     right.rotation.set(
-      THREE.MathUtils.degToRad(0.0),
-      THREE.MathUtils.degToRad(80.0),
-      THREE.MathUtils.degToRad(0.0)
+      0,
+      THREE.MathUtils.degToRad(90.0),
+      0
     );
+    right.updateMatrix();
     right.updateMatrixWorld(true);
   }
 
@@ -2976,25 +3175,17 @@ export function resolveGardenGateLeafs(__gardenCtx){
 
   if(GATE_PART_EDITORS.left){
     const o=GATE_PART_EDITORS.left;
+    o.visible=true;
     o.position.set(1.45,0,-1.85);
-    o.scale.set(.0001,.0001,.0001);
-    o.rotation.set(
-      0,
-      THREE.MathUtils.degToRad(-46),
-      0
-    );
+    o.rotation.set(0,0,0);
     o.updateMatrixWorld(true);
   }
 
   if(GATE_PART_EDITORS.right){
     const o=GATE_PART_EDITORS.right;
+    o.visible=true;
     o.position.set(-2.350,0,-6.650);
-    o.scale.set(.0001,.0001,.0001);
-    o.rotation.set(
-      0,
-      THREE.MathUtils.degToRad(80),
-      0
-    );
+    o.rotation.set(0,0,0);
     o.updateMatrixWorld(true);
   }
 
@@ -3495,9 +3686,54 @@ export function loadGardenFeatureModels(__gardenCtx){
 
 }
 
+
+export function setGardenGrassTextureSize(__gardenCtx, value){
+  const next=Math.max(.10,Math.min(4.00,Number(value)||1));
+  GARDEN_GRASS_TEXTURE_SIZE=next;
+
+  rebuildFlatGardenTexturePlane(__gardenCtx);
+  buildGardenSideGrassFill(__gardenCtx);
+  setGardenGrassColor(
+    __gardenCtx,
+    GARDEN_GRASS_COLOR,
+    GARDEN_GRASS_BRIGHTNESS
+  );
+
+  return GARDEN_GRASS_TEXTURE_SIZE;
+}
+
+export function getGardenGrassTextureSize(){
+  return GARDEN_GRASS_TEXTURE_SIZE;
+}
+
+export function getGardenGrassSeamOverlap(){
+  return GARDEN_GRASS_SEAM_OVERLAP;
+}
+
+export function setGardenGrassPlaneSize(__gardenCtx, width,depth){
+  const w=Math.max(20,Number(width)||GARDEN_GRASS_PLANE_SIZE.width);
+  const d=Math.max(20,Number(depth)||GARDEN_GRASS_PLANE_SIZE.depth);
+
+  GARDEN_GRASS_PLANE_SIZE.width=w;
+  GARDEN_GRASS_PLANE_SIZE.depth=d;
+
+  rebuildFlatGardenTexturePlane(__gardenCtx);
+
+  return {
+    width:GARDEN_GRASS_PLANE_SIZE.width,
+    depth:GARDEN_GRASS_PLANE_SIZE.depth
+  };
+}
+
+export function getGardenGrassPlaneSize(){
+  return {
+    width:GARDEN_GRASS_PLANE_SIZE.width,
+    depth:GARDEN_GRASS_PLANE_SIZE.depth
+  };
+}
+
 export function rebuildFlatGardenTexturePlane(__gardenCtx){
   const THREE=__gardenCtx.THREE;
-  const grassMat=__gardenCtx.grassMat;
   const outdoorGrassTexture=__gardenCtx.outdoorGrassTexture;
   const scene=__gardenCtx.scene;
 
@@ -3505,10 +3741,22 @@ export function rebuildFlatGardenTexturePlane(__gardenCtx){
     flatGardenTexturePlane.parent.remove(flatGardenTexturePlane);
   }
 
-  const geo=new THREE.PlaneGeometry(360,260);
-  const mat=grassMat.clone();
-  mat.map=outdoorGrassTexture;
-  mat.needsUpdate=true;
+  const grassWidth=
+    GARDEN_GRASS_PLANE_SIZE.width+
+    GARDEN_GRASS_SEAM_OVERLAP*2;
+  const grassDepth=
+    GARDEN_GRASS_PLANE_SIZE.depth+
+    GARDEN_GRASS_SEAM_OVERLAP*2;
+
+  const geo=new THREE.PlaneGeometry(
+    grassWidth,
+    grassDepth
+  );
+  const mat=makeUniformGardenGrassMaterial(
+    __gardenCtx,
+    grassWidth,
+    grassDepth
+  );
 
   flatGardenTexturePlane=new THREE.Mesh(geo,mat);
   flatGardenTexturePlane.name="flat_garden_grass_png_plane";

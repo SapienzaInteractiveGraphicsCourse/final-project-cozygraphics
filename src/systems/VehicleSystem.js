@@ -467,7 +467,7 @@ function loadStreetVehicles(){
         direction:1,
         speed:10.5,
         color:0xb51f24,
-        targetHeight:4.6368,
+        targetHeight:4.2525,
         phase:.2
       });
 
@@ -477,10 +477,10 @@ function loadStreetVehicles(){
         startX:-128,
         z:36,
         direction:1,
-        speed:9.9,
+        speed:10.5,
         color:0xe5e5e5,
-        targetHeight:4.4919,
-        phase:1.7
+        targetHeight:4.2550,
+        phase:0
       });
 
       // Traffic density reduced by 20% overall.
@@ -493,7 +493,7 @@ function loadStreetVehicles(){
           direction:-1,
           speed:10.2,
           color:0x2f3338,
-          targetHeight:4.3470,
+          targetHeight:4.2500,
           phase:4.8
         });
       }
@@ -681,6 +681,22 @@ export function updateVehicles(){
 
     let targetSpeed=
       car.desiredSpeed ?? car.speed;
+
+    // Enter curves a little more calmly.
+    // Uses the previous smoothed curvature so braking is gradual rather than reactive.
+    const curveAmount=
+      THREE.MathUtils.clamp(
+        Math.abs(car.smoothCurvature || 0)/.20,
+        0,
+        1
+      );
+
+    targetSpeed*=
+      THREE.MathUtils.lerp(
+        1.0,
+        .88,
+        curveAmount
+      );
 
     let nearestGap=Infinity;
     let leaderSpeed=targetSpeed;
@@ -892,9 +908,14 @@ export function updateVehicles(){
         Math.cos(yawDelta)
       );
 
+    // Softer, slower and frame-rate independent steering.
+    // The car follows the road tangent progressively instead of snapping into the curve.
+    const yawFollow=
+      1-Math.exp(-dt*3.25);
+
     car.smoothYaw+=
       yawDelta*
-      Math.min(1,dt*7.5);
+      yawFollow;
 
     car.root.rotation.y=
       car.smoothYaw;
@@ -919,17 +940,28 @@ export function updateVehicles(){
       // Do NOT divide by frame dt: that was amplifying tiny timing changes
       // into visible chassis shaking.
       curvature=THREE.MathUtils.clamp(
-        angleDelta*7.0,
-        -.34,
-        .34
+        angleDelta*4.25,
+        -.20,
+        .20
       );
     }
 
     car.previousTangent=tangent.clone();
 
+    if(!Number.isFinite(car.smoothCurvature)){
+      car.smoothCurvature=0;
+    }
+
+    car.smoothCurvature=
+      THREE.MathUtils.lerp(
+        car.smoothCurvature,
+        curvature,
+        1-Math.exp(-dt*2.8)
+      );
+
     const targetRoll=
-      -curvature*
-      .022*
+      -car.smoothCurvature*
+      .014*
       (car.direction>0?1:-1);
 
     const targetPitch=0;
@@ -938,14 +970,14 @@ export function updateVehicles(){
       THREE.MathUtils.lerp(
         car.smoothRoll,
         targetRoll,
-        1-Math.exp(-dt*4.2)
+        1-Math.exp(-dt*2.6)
       );
 
     car.smoothPitch=
       THREE.MathUtils.lerp(
         car.smoothPitch,
         targetPitch,
-        1-Math.exp(-dt*4.0)
+        1-Math.exp(-dt*2.8)
       );
 
     car.root.rotation.z=

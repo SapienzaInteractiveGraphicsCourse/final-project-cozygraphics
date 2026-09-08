@@ -248,7 +248,6 @@ function buildSidewalkJoinFix(){
   SIDEWALK_JOIN_FIX.clear();
 }
 
-
 function rebuildGardenCurvedSidewalkExtension(){
   const runtime=requireRuntime();
   const {scene,uRoadCurve,unifiedSidewalkMat}=runtime;
@@ -269,8 +268,6 @@ function rebuildGardenCurvedSidewalkExtension(){
     Number(GARDEN_CURVED_SIDEWALK_EDITOR.extension)||0
   );
 
-  // REAL large curved sidewalk:
-  // road-facing edge fixed, Garden-facing edge expands.
   const mesh=makeStripAlongCurve(
     "u_garden_sidewalk_concrete_continuous",
     uRoadCurve,
@@ -288,189 +285,7 @@ function rebuildGardenCurvedSidewalkExtension(){
   mesh.userData.gardenSidewalkExtension=extension;
 
   GARDEN_CURVED_SIDEWALK_EDITOR.mesh=mesh;
-  refreshGardenCurvedSidewalkEditor();
   return mesh;
-}
-
-function refreshGardenCurvedSidewalkEditor(){
-  if(typeof document==="undefined") return;
-
-  const read=document.getElementById(
-    "gardenCurvedSidewalkRead"
-  );
-
-  if(read){
-    read.textContent=
-      `CURVED SIDEWALK CONTROL — ROAD\n`+
-      `EXTEND ${GARDEN_CURVED_SIDEWALK_EDITOR.extension.toFixed(2)} m\n`+
-      `STEP ${GARDEN_CURVED_SIDEWALK_EDITOR.step.toFixed(2)} m\n`+
-      `DIRECTION TOWARD GARDEN / BARRICADES`;
-  }
-
-  const stepInput=document.getElementById(
-    "gardenCurvedSidewalkStep"
-  );
-
-  if(
-    stepInput &&
-    document.activeElement!==stepInput
-  ){
-    stepInput.value=
-      GARDEN_CURVED_SIDEWALK_EDITOR.step.toFixed(2);
-  }
-}
-
-function initGardenCurvedSidewalkEditor(){
-  if(
-    typeof document==="undefined" ||
-    document.getElementById("gardenCurvedSidewalkToggle")
-  ){
-    return;
-  }
-
-  const toggle=document.createElement("button");
-  toggle.id="gardenCurvedSidewalkToggle";
-  toggle.textContent="CURVED SIDEWALK CONTROL";
-
-  Object.assign(toggle.style,{
-    position:"fixed",
-    left:"50%",
-    top:"18px",
-    transform:"translateX(-50%)",
-    zIndex:"2147483000",
-    padding:"8px 11px",
-    border:"1px solid rgba(160,190,220,.65)",
-    borderRadius:"8px",
-    background:"rgba(55,82,105,.99)",
-    color:"#fff",
-    font:"900 9px Arial,sans-serif",
-    letterSpacing:".10em",
-    cursor:"pointer"
-  });
-
-  const panel=document.createElement("div");
-  panel.id="gardenCurvedSidewalkPanel";
-
-  Object.assign(panel.style,{
-    position:"fixed",
-    left:"50%",
-    top:"60px",
-    transform:"translateX(-50%)",
-    zIndex:"2147483001",
-    width:"310px",
-    display:"none",
-    padding:"12px",
-    border:"1px solid rgba(160,190,220,.48)",
-    borderRadius:"10px",
-    background:"rgba(16,22,28,.98)",
-    color:"#fff",
-    font:"11px Arial,sans-serif"
-  });
-
-  panel.innerHTML=`
-    <div style="font-weight:900;letter-spacing:.09em;margin-bottom:8px">
-      CURVED SIDEWALK CONTROL — ROAD
-    </div>
-
-    <pre id="gardenCurvedSidewalkRead"
-      style="white-space:pre-wrap;background:rgba(255,255,255,.05);padding:7px;border-radius:6px"></pre>
-
-    <div style="display:grid;grid-template-columns:80px 1fr;gap:6px;align-items:center;margin:8px 0">
-      <b>STEP</b>
-      <input id="gardenCurvedSidewalkStep"
-        type="number"
-        min=".01"
-        max="2"
-        step=".01"
-        value=".05"
-        style="width:100%;box-sizing:border-box">
-    </div>
-
-    <div style="display:grid;grid-template-columns:80px 1fr 1fr;gap:6px;align-items:center;margin:8px 0">
-      <b>EXTEND</b>
-      <button data-garden-curved-sidewalk="-1">−</button>
-      <button data-garden-curved-sidewalk="1">+</button>
-    </div>
-
-    <div style="font-size:10px;opacity:.72;margin-top:5px">
-      Controlla SOLO il marciapiede grande curvo davanti al Garden.
-      La piccola strip d'ingresso è fissa e non ha più nessun pannello.
-    </div>
-
-    <button id="gardenCurvedSidewalkReset"
-      style="width:100%;margin-top:9px;padding:7px;font-weight:900">
-      RESET 20 CM
-    </button>
-  `;
-
-  document.body.append(toggle,panel);
-
-  toggle.addEventListener("click",()=>{
-    panel.style.display=
-      panel.style.display==="block"
-        ?"none"
-        :"block";
-    refreshGardenCurvedSidewalkEditor();
-  });
-
-  panel.addEventListener(
-    "pointerdown",
-    event=>event.stopPropagation()
-  );
-
-  panel.addEventListener(
-    "click",
-    event=>event.stopPropagation()
-  );
-
-  document.getElementById("gardenCurvedSidewalkStep")
-    ?.addEventListener("change",event=>{
-      const value=Math.abs(
-        Number(event.target.value)
-      );
-
-      GARDEN_CURVED_SIDEWALK_EDITOR.step=
-        THREE.MathUtils.clamp(
-          Number.isFinite(value)
-            ? value
-            : .05,
-          .01,
-          2
-        );
-
-      refreshGardenCurvedSidewalkEditor();
-    });
-
-  panel.querySelectorAll(
-    "[data-garden-curved-sidewalk]"
-  ).forEach(button=>{
-    button.addEventListener("click",()=>{
-      const direction=
-        Number(
-          button.dataset.gardenCurvedSidewalk||0
-        );
-
-      GARDEN_CURVED_SIDEWALK_EDITOR.extension=
-        THREE.MathUtils.clamp(
-          GARDEN_CURVED_SIDEWALK_EDITOR.extension+
-          direction*
-          GARDEN_CURVED_SIDEWALK_EDITOR.step,
-          0,
-          10
-        );
-
-      rebuildGardenCurvedSidewalkExtension();
-    });
-  });
-
-  document.getElementById(
-    "gardenCurvedSidewalkReset"
-  )?.addEventListener("click",()=>{
-    GARDEN_CURVED_SIDEWALK_EDITOR.extension=.20;
-    rebuildGardenCurvedSidewalkExtension();
-  });
-
-  refreshGardenCurvedSidewalkEditor();
 }
 
 export function getGardenCurvedSidewalkExtension(){
@@ -627,7 +442,6 @@ export function initRoadCore({
   );
 
   rebuildGardenCurvedSidewalkExtension();
-  initGardenCurvedSidewalkEditor();
 
   makeFlatCurveBorder(
     "u_road_shop_curb_clean",
@@ -1161,7 +975,6 @@ export function hideRoadsideGrassStrips(scene){
   });
 }
 
-
 export function buildRoadExtensions(){
   const {
     scene,
@@ -1254,8 +1067,6 @@ export function buildRoadExtensions(){
 
   }
 
-  // One InstancedMesh replaces the 80 individual extension dash meshes.
-  // Same visual result, dramatically fewer WebGL draw calls.
   const dashDistances=[];
   for(let d=cfg.dashStart;d<cfg.length;d+=cfg.dashStep){
     dashDistances.push(d);
@@ -1318,7 +1129,6 @@ export function buildRoadExtensions(){
     limitZ:u.backZ-cfg.length
   };
 }
-
 
 export function buildBuildingConnectedSidewalks(sceneEnvConfig){
   const {
@@ -1500,7 +1310,6 @@ export function buildBuildingConnectedSidewalks(sceneEnvConfig){
   );
 }
 
-
 export function buildOuterContinuousRoadLines(){
   const {
     uRoadCurve
@@ -1535,4 +1344,52 @@ export function buildOuterContinuousRoadLines(){
     material,
     cfg.segments
   );
+}
+
+export function mainBuildInfiniteRoadOptical(ctx){
+  return ctx.roadBuildInfiniteRoadOptical(ctx.INFINITE_ROAD);
+}
+
+export function mainRemoveInfiniteRoadBlackBlockers(ctx){
+  return ctx.roadRemoveInfiniteRoadBlackBlockers(
+    ctx.scene,
+    ctx.LIGHT_COLLISION ?? null
+  );
+}
+
+export function mainHideRoadsideGrassStrips(ctx){
+  return ctx.roadHideRoadsideGrassStrips(ctx.scene);
+}
+
+export function isPlayerNearRoad(ctx){
+  const player=ctx.player;
+  const CROSSWALK=ctx.CROSSWALK;
+  if(!player?.root) return false;
+  const p=player.root.position;
+  return p.z>=CROSSWALK.roadMinZ-4 && p.z<=CROSSWALK.roadMaxZ+4;
+}
+
+export function setCarBodyColor(ctx,car,color){
+  ctx.cloneMaterials(car);
+  car.traverse(obj=>{
+    if(!obj.isMesh || !obj.material) return;
+    const materials=Array.isArray(obj.material) ? obj.material : [obj.material];
+    for(const mat of materials){
+      const materialName=(mat.name || "").toLowerCase();
+      const meshName=(obj.name || "").toLowerCase();
+      const isBody=
+        materialName.includes("polar") ||
+        materialName.includes("white") ||
+        materialName.includes("paint") ||
+        materialName.includes("body") ||
+        meshName.includes("body") ||
+        meshName.includes("carrozzer");
+      if(isBody && mat.color){
+        mat.color.setHex(color);
+        mat.metalness=Math.max(mat.metalness || 0,.45);
+        mat.roughness=.28;
+        mat.needsUpdate=true;
+      }
+    }
+  });
 }

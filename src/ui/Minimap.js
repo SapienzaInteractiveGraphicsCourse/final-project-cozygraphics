@@ -21,7 +21,10 @@ export function drawMinimap(deps){
     SCENE_ENV_CONFIG,
     currentZoneLabel,
     getPlayerMapZone,
-    npcs
+    npcs,
+    TASK_BOUNDARY,
+    GATE_PART_EDITORS,
+    COASTAL_ASSETS
   }=deps;
   if(!minimapCtx || !minimap || !player?.root) return;
 
@@ -67,6 +70,60 @@ export function drawMinimap(deps){
       x:cx+localRight*pixelsPerMeter,
       y:cy-localForward*pixelsPerMeter
     };
+  }
+
+
+  function worldSegment(x1,z1,x2,z2,color,width=.22){
+    const a=worldToRadar(x1,z1);
+    const b=worldToRadar(x2,z2);
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(a.x,a.y);
+    ctx.lineTo(b.x,b.y);
+    ctx.strokeStyle=color;
+    ctx.lineWidth=Math.max(1,width*pixelsPerMeter);
+    ctx.lineCap="round";
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawDoorMarker(centerX,z,width){
+    const half=Math.max(.6,width*.5);
+    worldSegment(centerX-half,z,centerX+half,z,"#d7c29b",.22);
+  }
+
+  function drawObjectLeaf(obj,color,width=.22){
+    if(!obj || obj.visible===false || !obj.parent) return;
+    obj.updateMatrixWorld?.(true);
+    const box=new THREE.Box3().setFromObject(obj);
+    if(box.isEmpty()) return;
+    const size=box.getSize(new THREE.Vector3());
+    const center=box.getCenter(new THREE.Vector3());
+    if(size.x>=size.z){
+      worldSegment(box.min.x,center.z,box.max.x,center.z,color,width);
+    }else{
+      worldSegment(center.x,box.min.z,center.x,box.max.z,color,width);
+    }
+  }
+
+  function drawGardenGatewayOnMap(){
+    const left=GATE_PART_EDITORS?.left || null;
+    const right=GATE_PART_EDITORS?.right || null;
+    drawObjectLeaf(left,"#d7c29b",.24);
+    drawObjectLeaf(right,"#d7c29b",.24);
+    if(!left && !right && TASK_BOUNDARY?.gate){
+      drawObjectLeaf(TASK_BOUNDARY.gate,"#bda77d",.18);
+    }
+  }
+
+  function drawGardenBarricadesOnMap(){
+    const left=GATE_PART_EDITORS?.barricadeLeft || null;
+    const right=GATE_PART_EDITORS?.barricadeRight || null;
+    drawObjectLeaf(left,"#8b6f4d",.20);
+    drawObjectLeaf(right,"#8b6f4d",.20);
+    if(!left && !right && COASTAL_ASSETS?.barricades){
+      drawObjectLeaf(COASTAL_ASSETS.barricades,"#8b6f4d",.18);
+    }
   }
 
   function polygon(points,fill,stroke=null,lineWidth=1){
@@ -265,36 +322,36 @@ export function drawMinimap(deps){
   const roomFrontZ=SCENE_ENV_CONFIG.frontZ;
   const roomBackZ=SCENE_ENV_CONFIG.backZ;
 
-  polygon([
-    [SCENE_ENV_CONFIG.leftRoomCenterX-roomHalfW,roomBackZ],
-    [SCENE_ENV_CONFIG.leftRoomCenterX+roomHalfW,roomBackZ],
-    [SCENE_ENV_CONFIG.leftRoomCenterX+roomHalfW,roomFrontZ],
-    [SCENE_ENV_CONFIG.leftRoomCenterX-roomHalfW,roomFrontZ]
-  ],COL.building,COL.buildingEdge,1.5);
+  // Casino + Jewelry + the real wall between them are drawn as ONE
+  // continuous exterior footprint. There is no sidewalk-colored gap.
+  const casinoLeftX=SCENE_ENV_CONFIG.leftRoomCenterX-roomHalfW;
+  const casinoRightX=SCENE_ENV_CONFIG.leftRoomCenterX+roomHalfW;
+  const jewelryLeftX=SCENE_ENV_CONFIG.rightRoomCenterX-roomHalfW;
+  const jewelryRightX=SCENE_ENV_CONFIG.rightRoomCenterX+roomHalfW;
 
   polygon([
-    [SCENE_ENV_CONFIG.rightRoomCenterX-roomHalfW,roomBackZ],
-    [SCENE_ENV_CONFIG.rightRoomCenterX+roomHalfW,roomBackZ],
-    [SCENE_ENV_CONFIG.rightRoomCenterX+roomHalfW,roomFrontZ],
-    [SCENE_ENV_CONFIG.rightRoomCenterX-roomHalfW,roomFrontZ]
+    [casinoLeftX,roomBackZ],
+    [jewelryRightX,roomBackZ],
+    [jewelryRightX,roomFrontZ],
+    [casinoLeftX,roomFrontZ]
   ],COL.building,COL.buildingEdge,1.5);
 
-  // Slight inner shading, derived from each room instead of old fixed coordinates.
   const innerInsetX=3.75;
   const innerInsetZ=4.0;
+  const innerCenterGrow=2.25;
 
   polygon([
-    [SCENE_ENV_CONFIG.leftRoomCenterX-roomHalfW+innerInsetX,roomBackZ+innerInsetZ],
-    [SCENE_ENV_CONFIG.leftRoomCenterX+roomHalfW-innerInsetX,roomBackZ+innerInsetZ],
-    [SCENE_ENV_CONFIG.leftRoomCenterX+roomHalfW-innerInsetX,roomFrontZ-innerInsetZ],
-    [SCENE_ENV_CONFIG.leftRoomCenterX-roomHalfW+innerInsetX,roomFrontZ-innerInsetZ]
+    [casinoLeftX+innerInsetX,roomBackZ+innerInsetZ],
+    [casinoRightX-innerInsetX+innerCenterGrow,roomBackZ+innerInsetZ],
+    [casinoRightX-innerInsetX+innerCenterGrow,roomFrontZ-innerInsetZ],
+    [casinoLeftX+innerInsetX,roomFrontZ-innerInsetZ]
   ],"#303740",null);
 
   polygon([
-    [SCENE_ENV_CONFIG.rightRoomCenterX-roomHalfW+innerInsetX,roomBackZ+innerInsetZ],
-    [SCENE_ENV_CONFIG.rightRoomCenterX+roomHalfW-innerInsetX,roomBackZ+innerInsetZ],
-    [SCENE_ENV_CONFIG.rightRoomCenterX+roomHalfW-innerInsetX,roomFrontZ-innerInsetZ],
-    [SCENE_ENV_CONFIG.rightRoomCenterX-roomHalfW+innerInsetX,roomFrontZ-innerInsetZ]
+    [jewelryLeftX+innerInsetX-innerCenterGrow,roomBackZ+innerInsetZ],
+    [jewelryRightX-innerInsetX,roomBackZ+innerInsetZ],
+    [jewelryRightX-innerInsetX,roomFrontZ-innerInsetZ],
+    [jewelryLeftX+innerInsetX-innerCenterGrow,roomFrontZ-innerInsetZ]
   ],"#303740",null);
 
   for(const off of crosswalkOffsets){
@@ -623,6 +680,19 @@ export function drawMinimap(deps){
   }
 
   drawPulsingTaskDiamond(getEasyTaskDestination());
+
+  const casinoDoorX=
+    SCENE_ENV_CONFIG.leftRoomCenterX+
+    (SCENE_ENV_CONFIG.leftDoorOffsetX||0);
+  const jewelryDoorX=SCENE_ENV_CONFIG.rightRoomCenterX;
+  const doorZ=SCENE_ENV_CONFIG.doorZ ?? roomFrontZ;
+  const doorWidth=SCENE_ENV_CONFIG.doorWidth || 3.0;
+
+  drawDoorMarker(casinoDoorX,doorZ,doorWidth);
+  drawDoorMarker(jewelryDoorX,doorZ,doorWidth);
+
+  drawGardenGatewayOnMap();
+  drawGardenBarricadesOnMap();
 
   // Building names centered on the actual room footprints.
   drawWorldLabel(

@@ -1,6 +1,6 @@
-// ================= CONFIG PERSONAGGI =================
-// Questo file contiene solo dati.
-// La logica dei personaggi sta in ../classes/.
+// ================= CHARACTER CONFIG =================
+// This file contains data only.
+// Character logic lives in ../classes/.
 
 export const CHARACTER_CONFIGS = {
   player: {
@@ -8,7 +8,7 @@ export const CHARACTER_CONFIGS = {
     name: "player",
     role: "player",
     file: "../assets/models/player.glb",
-    position: { x: 0, z: 15.5 },
+    position: { x: 0, y: 0.1, z: 15.5 },
     height: 4.0,
     rotationY: Math.PI,
     speed: 0.08
@@ -19,12 +19,12 @@ export const CHARACTER_CONFIGS = {
     name: "securityMan",
     role: "npc",
     file: "../assets/models/securityMan.glb",
-    position: { x: -4.0, z: 6.0 },
+    position: { x: -4.0, y: 0.15, z: 6.0 },
     height: 4.0,
-    rotationY: Math.PI,
+    rotationY: -0.5974,
     zone: "outside",
     style: "security",
-    dialogue: "Security: Ehi, fermo un attimo. Questa zona è controllata. Dimmi cosa stai cercando."
+    dialogue: "Security: Hey, stop for a moment. This area is monitored. Tell me what you are looking for."
   },
 
   toxicMan: {
@@ -32,12 +32,12 @@ export const CHARACTER_CONFIGS = {
     name: "toxicMan",
     role: "npc",
     file: "../assets/models/toxicMan.glb",
-    position: { x: -24.0, z: -20.5 },
+    position: { x: -24.0, y: 0, z: -20.5 },
     height: 4.0,
     rotationY: 0,
     zone: "leftRoom",
     style: "toxic",
-    dialogue: "ToxicMan: Non avvicinarti troppo. Sto solo osservando."
+    dialogue: "ToxicMan: Don't get too close. I'm just watching."
   },
 
   child: {
@@ -45,12 +45,12 @@ export const CHARACTER_CONFIGS = {
     name: "child",
     role: "npc",
     file: "../assets/models/child.glb",
-    position: { x: -11.5, z: -19.0 },
+    position: { x: -7.800, y: 0.110, z: -5.9 },
     height: 2.8,
     rotationY: 0,
     zone: "leftRoom",
     style: "child",
-    dialogue: "Bambino: Ciao! Hai visto il barista? Dice che qui succedono cose strane."
+    dialogue: "Child: Hi! Have you seen the bartender? He says strange things happen here."
   },
 
   boyListeningMusic: {
@@ -58,12 +58,12 @@ export const CHARACTER_CONFIGS = {
     name: "boyListeningMusic",
     role: "npc",
     file: "../assets/models/boyListeningMusic.glb",
-    position: { x: 18.0, z: -20.0 },
+    position: { x: 18.0, y: 0, z: -20.0 },
     height: 3.8,
     rotationY: 0,
     zone: "rightRoom",
     style: "music",
-    dialogue: "Ragazzo: Aspetta, abbasso la musica... sì, ora ti sento. Che succede?"
+    dialogue: "Boy: Wait, I'll turn the music down... yes, I can hear you now. What's going on?"
   }
 };
 

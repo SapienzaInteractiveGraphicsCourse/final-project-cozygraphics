@@ -387,7 +387,7 @@ if(aWheelWeight>.5){
 
 function loadStreetVehicles(){
   vehicleLoader.load(
-    "../assets/models/car.glb",
+    "./assets/models/car.glb",
     (gltf)=>{
       const source=gltf.scene;
 

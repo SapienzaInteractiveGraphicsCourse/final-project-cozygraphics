@@ -14,6 +14,7 @@ export const CHARACTER_CONFIGS = {
     speed: 0.08
   },
 
+
   securityMan: {
     id: "securityMan",
     name: "securityMan",

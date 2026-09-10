@@ -2824,16 +2824,16 @@ const MAX_PERF={
   interaction:0,fx:0,water:0,cars:0,girl:0,collision:0,visibility:0,npc:0,lights:0,
   questPresence:0,editorUi:0,
   farDecor:[],
-  interactionStep:1/12,
-  fxStep:1/20,
+  interactionStep:1/4,
+  fxStep:1/4,
   waterStep:1/24,
   carsStep:1/30,
   girlStep:1/30,
-  collisionStep:1/24,
-  visibilityStep:.45,
-  npcStep:1/24,
+  collisionStep:1/30,
+  visibilityStep:8.00,
+  npcStep:1/30,
   lightsStep:2,
-  questPresenceStep:1/10,
+  questPresenceStep:.60,
   editorUiStep:1/5
 };
 function maxPerfCacheFarDecor(){
@@ -2935,10 +2935,13 @@ function maxPerfBuildInstancedGLB(
 }
 function maxPerfFreeze(root){
   if(!root) return;
+  root.updateMatrixWorld(true);
   root.traverse(o=>{
     if(!o || o.isBone || o.isSkinnedMesh) return;
     o.updateMatrix();
     o.matrixAutoUpdate=false;
+    // Static scenery can also stop rebuilding world matrices every frame.
+    if("matrixWorldAutoUpdate" in o) o.matrixWorldAutoUpdate=false;
     if(o.isMesh){
       o.castShadow=false;
       o.frustumCulled=true;
@@ -4557,11 +4560,11 @@ function showUnexploredZoneMessage(){
     );
 }
 
+let FAR_WORLD_PROPS_PREPARED=false;
 function optimizeFarWorldProps(){
-  if(!player?.root) return;
-  const px=player.root.position.x;
-  const pz=player.root.position.z;
-  const maxDistSq=520*520;
+  if(FAR_WORLD_PROPS_PREPARED) return;
+  FAR_WORLD_PROPS_PREPARED=true;
+  // These groups are static and must remain visible: freeze them once instead of distance-updating them.
   for(const groupName of [
     "real_100m_barricades",
     "garden_boundary_fence_side_only",
@@ -4569,11 +4572,8 @@ function optimizeFarWorldProps(){
   ]){
     const group=scene.getObjectByName(groupName);
     if(!group) continue;
-    for(const obj of group.children){
-      const dx=obj.position.x-px;
-      const dz=obj.position.z-pz;
-      obj.visible=(dx*dx+dz*dz)<=maxDistSq;
-    }
+    group.visible=true;
+    maxPerfFreeze(group);
   }
 }
 roadBuildOuterContinuousRoadLines();
@@ -6557,7 +6557,12 @@ function loadCharacter(c){
         c.root.position.copy(CASINO_CHILD_INITIAL.position);
         c.root.rotation.copy(CASINO_CHILD_INITIAL.rotation);
         c.root.scale.setScalar(CASINO_CHILD_INITIAL.scale);
+        c.root.visible=true;
         c.root.updateMatrixWorld(true);
+
+        // Child collider must exist from load time and stay anchored
+        // to CASINO_CHILD_INITIAL, not wait for the first nearby NPC update.
+        registerCasinoEditable("child",c.root);
       }
       if(c.name==="boyListeningMusic"){
         c.root.position.set(
@@ -10240,6 +10245,13 @@ const {
   childUserStartPoseFlow,
   childUserBeginReturnPose1
 }=createChildPoseSystem({
+  THREE,
+  getBones,
+  getRest,
+  childPoseOffsetTarget,
+  CHILD_USER_POSE_FLOW,
+  CHILD_USER_POSE_2,
+  CHILD_USER_POSE_1,
   CASINO_EDITABLE_OBJECTS,
   CHARACTER_CONFIGS,
   NPC_CONVERSATION_FINAL_LATCH,
@@ -11473,6 +11485,16 @@ const PLAYER_MOVE_CACHE={
   wToSoloTurnActive:false,
   wToSoloTurnDir:new THREE.Vector3(),
 
+  // Smooth handoff from an in-place A/D turn into straight W movement.
+  adToForwardBlend:1,
+  adToForwardActive:false,
+  adToForwardDir:new THREE.Vector3(),
+
+  // A/D solo started first: W is ignored until A/D is released.
+  soloTurnLocksForward:false,
+
+  // Prevent a forward lurch when W becomes available after a solo A/D turn.
+  adToForwardSpeedBlend:1,
 
   turnMicroActive:false,
   turnMicroAnchor:new THREE.Vector3(),
@@ -11561,8 +11583,35 @@ function updatePlayer(){
   const aKey=!!keys["a"];
   const dKey=!!keys["d"];
 
-  const forwardInput=(w ? 1 : 0)-(sKey ? 1 : 0);
+  const rawForwardInput=(w ? 1 : 0)-(sKey ? 1 : 0);
   const sideInput=(dKey ? 1 : 0)-(aKey ? 1 : 0);
+
+  // If A/D was already active alone, ignore a later W press.
+  // Starting W+A/D together remains unchanged.
+  if(
+    rawForwardInput===0 &&
+    sideInput!==0 &&
+    cache.previousForwardInput===0
+  ){
+    cache.soloTurnLocksForward=true;
+    cache.adToForwardSpeedBlend=0;
+  }
+
+  // Releasing A/D unlocks forward movement.
+  // If W is already held, ramp forward speed in instead of applying it all at once.
+  if(sideInput===0 && cache.soloTurnLocksForward){
+    cache.soloTurnLocksForward=false;
+    cache.adToForwardSpeedBlend=0;
+  }
+
+  const forwardInput=
+    (
+      cache.soloTurnLocksForward &&
+      sideInput!==0 &&
+      rawForwardInput>0
+    )
+      ? 0
+      : rawForwardInput;
 
   const forwardTurning=
     forwardInput>0 &&
@@ -11600,6 +11649,22 @@ function updatePlayer(){
   const soloTurnInput=
     forwardInput===0 &&
     Math.abs(sideInput)>.001;
+
+  const startedForwardFromSoloTurn=
+    forwardInput>0 &&
+    Math.abs(sideInput)<.001 &&
+    cache.previousForwardInput===0 &&
+    Math.abs(cache.previousSideInput)>.001;
+
+  if(startedForwardFromSoloTurn){
+    cache.adToForwardActive=true;
+    cache.adToForwardBlend=0;
+    cache.adToForwardDir.set(
+      Math.sin(root.rotation.y),
+      0,
+      Math.cos(root.rotation.y)
+    );
+  }
 
   const startedSoloTurnFromForward=
     soloTurnInput &&
@@ -11676,6 +11741,54 @@ function updatePlayer(){
         moveDir.normalize();
       }
 
+      // A/D -> W handoff: blend from the body's current forward vector
+      // into the normal W/camera direction for a short, smooth transition.
+      if(
+        forwardInput>0 &&
+        Math.abs(sideInput)<.001 &&
+        cache.adToForwardActive
+      ){
+        cache.adToForwardBlend=
+          THREE.MathUtils.clamp(
+            cache.adToForwardBlend+
+            THREE.MathUtils.clamp(
+              (frameDt || 1/60)*5.2,
+              .055,
+              .18
+            ),
+            0,
+            1
+          );
+
+        const adToWSmooth=
+          THREE.MathUtils.smoothstep(
+            cache.adToForwardBlend,
+            0,
+            1
+          );
+
+        cache.adToForwardDir.lerp(
+          moveDir,
+          .10+.30*adToWSmooth
+        );
+        cache.adToForwardDir.y=0;
+
+        if(cache.adToForwardDir.lengthSq()>.0001){
+          cache.adToForwardDir.normalize();
+          moveDir.copy(cache.adToForwardDir);
+        }
+
+        if(cache.adToForwardBlend>=.999){
+          cache.adToForwardActive=false;
+        }
+      }else if(
+        forwardInput<=0 ||
+        Math.abs(sideInput)>.001
+      ){
+        cache.adToForwardActive=false;
+        cache.adToForwardBlend=1;
+      }
+
       if(
         soloTurnInput &&
         cache.wToSoloTurnActive
@@ -11748,10 +11861,27 @@ function updatePlayer(){
 
     const globalPlayerMoveFactor=.79;
 
+    // Smooth forward acceleration after releasing a solo A/D turn.
+    if(forwardInput>0 && sideInput===0 && cache.adToForwardSpeedBlend<1){
+      cache.adToForwardSpeedBlend=
+        THREE.MathUtils.clamp(
+          cache.adToForwardSpeedBlend+
+          THREE.MathUtils.clamp((frameDt||1/60)*4.2,.04,.14),
+          0,
+          1
+        );
+    }else if(forwardInput<=0 || sideInput!==0){
+      cache.adToForwardSpeedBlend=1;
+    }
+
+    const adToForwardSpeedFactor=
+      forwardInput>0 && sideInput===0
+        ? THREE.MathUtils.smoothstep(cache.adToForwardSpeedBlend,0,1)
+        : 1;
 
     const wSoloSpeedBoost=
       (forwardInput>0 && sideInput===0)
-        ? 1.04
+        ? 1.18
         : 1;
 
     if(pureTurnInPlace){
@@ -11778,7 +11908,8 @@ function updatePlayer(){
         movementScale*
         speedFactor*
         globalPlayerMoveFactor*
-        wSoloSpeedBoost
+        wSoloSpeedBoost*
+        adToForwardSpeedFactor
       );
     }
 
@@ -11809,6 +11940,19 @@ function updatePlayer(){
         moveDir.x,
         moveDir.z
       );
+
+      if(cache.adToForwardActive){
+        const bodyYaw=root.rotation.y;
+        const desiredYaw=targetFacingYaw;
+        const yawBlend=THREE.MathUtils.smoothstep(
+          cache.adToForwardBlend,
+          0,
+          1
+        );
+        targetFacingYaw=
+          bodyYaw+
+          normalizeAngle(desiredYaw-bodyYaw)*yawBlend;
+      }
     }
 
     if(activeWorldZone==="outside"){
@@ -12080,6 +12224,12 @@ function createCollectibleWallet(){
 createCollectibleWallet();
 function updateCollectibleSparkles(){
   if(!moduleInitializationComplete) return;
+
+  // Wallet must exist/be interactable only AFTER the first Security dialogue finishes.
+  // That dialogue advances the quest to "search_clues".
+  if(COLLECTIBLES?.wallet){
+    COLLECTIBLES.wallet.visible = QUEST.stage==="search_clues";
+  }
   const t=performance.now()*.006;
   for(const root of [COLLECTIBLES.wallet,COLLECTIBLES.documents]){
     if(!root?.visible || !root?.userData?.sparkles) continue;
@@ -12244,6 +12394,8 @@ function updateInteraction(){
   let collectibleBest=999;
   for(const item of collectibleCandidates){
     if(!item.root) continue;
+    if(item.id==="wallet" && QUEST.stage!=="search_clues") continue;
+    if(item.root.visible===false) continue;
     const d=player.root.position.distanceTo(item.root.position);
     if(d<2.6 && d<collectibleBest){
       collectibleBest=d;
@@ -12383,13 +12535,20 @@ function shouldUpdateNPCByDistance(npc){
   const farSq=
     NPC_RELEVANCE_CONFIG.farDistance*
     NPC_RELEVANCE_CONFIG.farDistance;
-  let every=NPC_RELEVANCE_CONFIG.veryFarEvery;
+  // NPC cadence is distance based.
+  // Nearby NPCs and active dialogue targets stay fully fluid.
+  // With the 30 FPS game cap:
+  // near <= 25m: 30 Hz
+  // medium <= 60m: ~10 Hz
+  // far <= 120m: ~3.75 Hz
+  // very far: ~1.25 Hz
+  let every=24;
   if(distSq<=nearSq){
-    every=NPC_RELEVANCE_CONFIG.nearEvery;
+    every=1;
   }else if(distSq<=mediumSq){
-    every=NPC_RELEVANCE_CONFIG.mediumEvery;
+    every=3;
   }else if(distSq<=farSq){
-    every=NPC_RELEVANCE_CONFIG.farEvery;
+    every=8;
   }
   if(every<=1) return true;
   if(npc.__relevancePhase===undefined){
@@ -13840,14 +13999,8 @@ function isInsideMainShopsPosition(pos){
   return pos.z < SCENE_ENV_CONFIG.frontZ + 1.5 && Math.abs(pos.x) < 68;
 }
 function updateFarDecorVisibility(){
-  if(!player?.root) return;
+  // Static distant decor stays visible. Cache once; no repeated per-object writes needed.
   if(!MAX_PERF.farDecor.length) maxPerfCacheFarDecor();
-  const px=player.root.position.x,pz=player.root.position.z;
-  const maxSq=420*420;
-  for(const obj of MAX_PERF.farDecor){
-    const dx=obj.position.x-px,dz=obj.position.z-pz;
-    obj.visible=(dx*dx+dz*dz)<maxSq;
-  }
 }
 function removeMusicBoyCompletely(){
   if(typeof npcs==="undefined") return;
@@ -13881,10 +14034,33 @@ function freezePerformanceStaticWorld(){
       n.includes("sidewalk") ||
       n.includes("road_outer") ||
       n.includes("road_lane") ||
-      n.includes("curb_clean")
+      n.includes("curb_clean") ||
+      n.includes("garden_boundary") ||
+      n.includes("garden_fence") ||
+      n.includes("garden_chair") ||
+      n.includes("garden_tree_backdrop") ||
+      n.includes("barricade") ||
+      n.includes("mountain") ||
+      n.includes("building") ||
+      n.includes("shop_wall") ||
+      n.includes("room_wall") ||
+      n.includes("floor_static") ||
+      n.includes("ceiling_static") ||
+      n.includes("counter_static") ||
+      n.includes("fence_static") ||
+      n.includes("decor_static") ||
+      n.includes("bench") ||
+      n.includes("trash") ||
+      n.includes("planter") ||
+      n.includes("statue") ||
+      n.includes("bollard") ||
+      n.includes("sign_static") ||
+      n.includes("rock_static")
     ){
+      obj.updateMatrixWorld(true);
       obj.updateMatrix();
       obj.matrixAutoUpdate=false;
+      if("matrixWorldAutoUpdate" in obj) obj.matrixWorldAutoUpdate=false;
       obj.castShadow=false;
       obj.frustumCulled=true;
     }
@@ -13897,6 +14073,13 @@ function updatePerformanceVisibility(){
     for(const npc of npcs){
       const root=npc?.root;
       if(!root) continue;
+
+      // Child is intentionally visible before the player enters the casino.
+      if(npc?.name==="child"){
+        root.visible=true;
+        continue;
+      }
+
       const pos=root.position;
       if(!isInsideMainShopsPosition(pos)){
         root.visible=true;
@@ -13950,6 +14133,121 @@ let PLAYER_PERF_SAMPLE={
   frames:0,
   start:performance.now()
 };
+
+// Adaptive performance tuning - kept inside main.js on purpose.
+// Targets the existing 30 FPS cap and only reduces background/render cost when needed.
+const AUTO_PERF={
+  mode:"high",
+  frames:0,
+  sampleStart:performance.now(),
+  lastSwitch:0,
+  fastSamples:0,
+  profiles:{
+    high:{
+      pixelRatio:1.00,
+      interactionStep:1/4,
+      fxStep:1/4,
+      carsStep:1/30,
+      collisionStep:1/30,
+      visibilityStep:10.00,
+      npcStep:1/30,
+      lightsStep:9.0,
+      questPresenceStep:.60,
+      minimapStep:.125,
+      fixedLightStep:null
+    },
+    medium:{
+      pixelRatio:1.00,
+      interactionStep:1/3,
+      fxStep:1/4,
+      carsStep:1/30,
+      collisionStep:1/30,
+      visibilityStep:6.00,
+      npcStep:1/30,
+      lightsStep:7.5,
+      questPresenceStep:.60,
+      minimapStep:.125,
+      fixedLightStep:.70
+    },
+    low:{
+      pixelRatio:1.00,
+      interactionStep:1/2,
+      fxStep:1/4,
+      carsStep:1/30,
+      collisionStep:1/30,
+      visibilityStep:6.00,
+      npcStep:1/30,
+      lightsStep:9.0,
+      questPresenceStep:.60,
+      minimapStep:.125,
+      fixedLightStep:.70
+    }
+  }
+};
+AUTO_PERF.baseFixedLightStep=FIXED_LIGHT_POOL.updateStep;
+AUTO_PERF.minimapStep=.125;
+
+function applyAutoPerformanceMode(mode,force=false){
+  const p=AUTO_PERF.profiles[mode];
+  if(!p) return;
+  if(!force && AUTO_PERF.mode===mode) return;
+
+  AUTO_PERF.mode=mode;
+  AUTO_PERF.lastSwitch=performance.now();
+  AUTO_PERF.fastSamples=0;
+  AUTO_PERF.minimapStep=p.minimapStep;
+
+  MAX_PERF.interactionStep=p.interactionStep;
+  MAX_PERF.fxStep=p.fxStep;
+  MAX_PERF.carsStep=p.carsStep;
+  MAX_PERF.collisionStep=p.collisionStep;
+  MAX_PERF.visibilityStep=p.visibilityStep;
+  MAX_PERF.npcStep=p.npcStep;
+  MAX_PERF.lightsStep=p.lightsStep;
+  MAX_PERF.questPresenceStep=p.questPresenceStep;
+  FIXED_LIGHT_POOL.updateStep=p.fixedLightStep ?? AUTO_PERF.baseFixedLightStep;
+
+  // Render resolution is usually the biggest GPU win on weaker computers.
+  renderer.setPixelRatio(p.pixelRatio);
+  renderer.setSize(innerWidth,innerHeight,false);
+}
+
+function updateAutoPerformance(now){
+  AUTO_PERF.frames++;
+  const elapsed=now-AUTO_PERF.sampleStart;
+  if(elapsed<4000) return;
+
+  const fps=AUTO_PERF.frames*1000/Math.max(1,elapsed);
+  AUTO_PERF.frames=0;
+  AUTO_PERF.sampleStart=now;
+
+  // Give each mode time to settle before switching again.
+  if(now-AUTO_PERF.lastSwitch<5000) return;
+
+  if(fps<20.5){
+    applyAutoPerformanceMode("low");
+    return;
+  }
+  if(fps<26){
+    if(AUTO_PERF.mode==="high") applyAutoPerformanceMode("medium");
+    else if(AUTO_PERF.mode==="medium" && fps<23) applyAutoPerformanceMode("low");
+    return;
+  }
+
+  if(fps>=28.5){
+    AUTO_PERF.fastSamples++;
+    if(AUTO_PERF.fastSamples>=3){
+      if(AUTO_PERF.mode==="low") applyAutoPerformanceMode("medium");
+      else if(AUTO_PERF.mode==="medium") applyAutoPerformanceMode("high");
+      AUTO_PERF.fastSamples=0;
+    }
+  }else{
+    AUTO_PERF.fastSamples=0;
+  }
+}
+
+applyAutoPerformanceMode("high",true);
+
 function samplePlayerPerformance(){
   PLAYER_PERF_SAMPLE.frames++;
   const now=performance.now();
@@ -13965,6 +14263,10 @@ addEventListener("DOMContentLoaded",()=>{
     window.__HAND_TARGET_TO_PLAYER__?.();
   });
 });
+
+// Non-critical UI/proximity checks: 4 Hz is enough.
+let BACKGROUND_UI_ACCUM=0;
+const BACKGROUND_UI_STEP=.25;
 
 function animate(rafNow){
   requestAnimationFrame(animate);
@@ -13982,7 +14284,11 @@ function animate(rafNow){
     now-(elapsed%GAME_FRAME_INTERVAL_MS);
   const dt=Math.min(Math.max((now-(PERF_RUNTIME.lastFrame||now))/1000,0),.05);
   PERF_RUNTIME.lastFrame=now;
+  updateAutoPerformance(now);
   frameDt=dt;
+  BACKGROUND_UI_ACCUM+=dt;
+  const runBackgroundUI=BACKGROUND_UI_ACCUM>=BACKGROUND_UI_STEP;
+  if(runBackgroundUI) BACKGROUND_UI_ACCUM=0;
   MAX_PERF.interaction+=dt;
   MAX_PERF.fx+=dt;
   MAX_PERF.water+=dt;
@@ -13999,9 +14305,25 @@ function animate(rafNow){
   PERF_RUNTIME.editorAccumulator+=dt;
   PERF_RUNTIME.tikiAnimAccumulator+=dt;
   updatePlayer();
-  updateJukeboxInteraction();
-  updateTelescopeInteractionPrompt();
-  showPoliceRadioPrompt();
+  if(runBackgroundUI){
+    const walletPromptActive=
+      collectibleTarget?.id==="wallet" ||
+      (
+        QUEST.stage==="search_clues" &&
+        pickupPrompt?.style?.display==="block" &&
+        collectibleTarget
+      );
+
+    if(walletPromptActive){
+      if(JUKEBOX_AUDIO_RUNTIME?.prompt){
+        JUKEBOX_AUDIO_RUNTIME.prompt.style.display="none";
+      }
+    }else{
+      updateJukeboxInteraction();
+    }
+  }
+  if(runBackgroundUI) updateTelescopeInteractionPrompt();
+  if(runBackgroundUI) showPoliceRadioPrompt();
   if(TELESCOPE_MODE?.active) telescopeForceMoonInvisible();
   updateThiefDiscoveryTurn(dt);
   if(!GAME_START_RETURN.captured){
@@ -14046,12 +14368,34 @@ function animate(rafNow){
   if(MAX_PERF.fx>=MAX_PERF.fxStep){
     MAX_PERF.fx=0;
     updateCollectibleSparkles();
+  }
+
+  PERF_RUNTIME.gardenVisualAccumulator=(PERF_RUNTIME.gardenVisualAccumulator||0)+dt;
+  if(PERF_RUNTIME.gardenVisualAccumulator>=.25){
+    PERF_RUNTIME.gardenVisualAccumulator=0;
     gardenBuild("updateGardenFountainWater");
-}
-  if(MAX_PERF.interaction>=MAX_PERF.interactionStep){
-    MAX_PERF.interaction=0;
-    updateInteraction();
+  }
+  // Inventory input does not need 30 checks/sec. 15 Hz stays responsive.
+  PERF_RUNTIME.inventoryAccumulator=(PERF_RUNTIME.inventoryAccumulator||0)+dt;
+  if(PERF_RUNTIME.inventoryAccumulator>=1/15){
+    PERF_RUNTIME.inventoryAccumulator=0;
     updateInventoryToggle();
+  }
+
+  // Passive interaction scans stay throttled, but an E press must never be missed.
+  // While E is held, scan immediately every rendered frame so the dialogue starts
+  // on the first press instead of waiting for the next background interaction tick.
+  const interactionDue=
+    MAX_PERF.interaction>=MAX_PERF.interactionStep;
+
+  if(interactionDue || keys["e"]){
+    if(interactionDue) MAX_PERF.interaction=0;
+    updateInteraction();
+
+    // Wallet/pickup prompt has priority over the jukebox prompt.
+    if(collectibleTarget?.id==="wallet" && JUKEBOX_AUDIO_RUNTIME?.prompt){
+      JUKEBOX_AUDIO_RUNTIME.prompt.style.display="none";
+    }
   }
   if(MAX_PERF.npc>=MAX_PERF.npcStep){
     MAX_PERF.npc=0;
@@ -14085,7 +14429,7 @@ function animate(rafNow){
     FIXED_LIGHT_POOL.updateAccumulator=0;
     updateFixedLightPool(player,FIXED_LIGHT_POOL);
   }
-  if(PERF_RUNTIME.minimapAccumulator>=.125){
+  if(PERF_RUNTIME.minimapAccumulator>=AUTO_PERF.minimapStep){
     PERF_RUNTIME.minimapAccumulator=0;
     if(typeof drawMinimap==="function") drawMinimap();
   }
@@ -14122,7 +14466,7 @@ setTimeout(()=>{
 addEventListener("resize",()=>{
   camera.aspect=innerWidth/innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth,innerHeight);
+  renderer.setSize(innerWidth,innerHeight,false);
 });
 
 moduleInitializationComplete=true;

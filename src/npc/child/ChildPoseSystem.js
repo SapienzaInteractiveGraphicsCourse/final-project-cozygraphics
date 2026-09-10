@@ -34,8 +34,8 @@ function animateChildNewTalk(c){
   ){
     const elapsed=now-s.start;
 
-    const stepRaw=THREE.MathUtils.clamp(
-      elapsed/(CHILD_USER_POSE_FLOW.enterMs*.72),
+    const stepRaw=ctx.THREE.MathUtils.clamp(
+      elapsed/(ctx.CHILD_USER_POSE_FLOW.enterMs*.72),
       0,
       1
     );
@@ -53,23 +53,23 @@ function animateChildNewTalk(c){
   }
 
   if(s.phase==="enter"){
-    const raw=(now-s.start)/CHILD_USER_POSE_FLOW.enterMs;
+    const raw=(now-s.start)/ctx.CHILD_USER_POSE_FLOW.enterMs;
     const t=childUserSmooth01(raw);
 
     const p=childUserLerpPose(
       s.from,
-      CHILD_USER_POSE_1,
+      ctx.CHILD_USER_POSE_1,
       t
     );
 
-    p.leftFingerCurl=THREE.MathUtils.lerp(
+    p.leftFingerCurl=ctx.THREE.MathUtils.lerp(
       s.from?.leftFingerCurl||0,
-      CHILD_USER_POSE_1.leftFingerCurl||0,
+      ctx.CHILD_USER_POSE_1.leftFingerCurl||0,
       t
     );
-    p.rightFingerCurl=THREE.MathUtils.lerp(
+    p.rightFingerCurl=ctx.THREE.MathUtils.lerp(
       s.from?.rightFingerCurl||0,
-      CHILD_USER_POSE_1.rightFingerCurl||0,
+      ctx.CHILD_USER_POSE_1.rightFingerCurl||0,
       t
     );
 
@@ -100,15 +100,15 @@ function animateChildNewTalk(c){
 
     const sine=
       (Math.sin(
-        seconds*(Math.PI*2/CHILD_USER_POSE_FLOW.cycleSeconds)
+        seconds*(Math.PI*2/ctx.CHILD_USER_POSE_FLOW.cycleSeconds)
         - Math.PI/2
       )+1)*.5;
 
     const blend=childUserSmooth01(sine);
 
     const p=childUserLerpPose(
-      CHILD_USER_POSE_1,
-      CHILD_USER_POSE_2,
+      ctx.CHILD_USER_POSE_1,
+      ctx.CHILD_USER_POSE_2,
       blend
     );
 
@@ -116,10 +116,10 @@ function animateChildNewTalk(c){
     const b=Math.sin(seconds*1.25+.75);
     const c2=Math.sin(seconds*.95+1.25);
 
-    p.leftArm[0]+=a*CHILD_USER_POSE_FLOW.armShake*.12;
-    p.rightArm[0]+=a*CHILD_USER_POSE_FLOW.armShake*.12;
+    p.leftArm[0]+=a*ctx.CHILD_USER_POSE_FLOW.armShake*.12;
+    p.rightArm[0]+=a*ctx.CHILD_USER_POSE_FLOW.armShake*.12;
 
-    p.leftForeArm[0]+=b*CHILD_USER_POSE_FLOW.foreShake*.10;
+    p.leftForeArm[0]+=b*ctx.CHILD_USER_POSE_FLOW.foreShake*.10;
     p.leftForeArm[2]+=a*.07;
 
     p.rightForeArm[0]+=b*.09;
@@ -129,12 +129,12 @@ function animateChildNewTalk(c){
     p.rightHand[0]+=a*.025;
 
     p.head=[
-      a*CHILD_USER_POSE_FLOW.headNod,
+      a*ctx.CHILD_USER_POSE_FLOW.headNod,
       b*.78,
       c2*.24
     ];
     p.neck=[
-      a*CHILD_USER_POSE_FLOW.neckNod,
+      a*ctx.CHILD_USER_POSE_FLOW.neckNod,
       b*.32,
       c2*.10
     ];
@@ -142,24 +142,24 @@ function animateChildNewTalk(c){
     const pulse=(Math.sin(seconds*3.55)+1)*.5;
 
     p.leftFingerCurl=
-      THREE.MathUtils.lerp(
-        CHILD_USER_POSE_1.leftFingerCurl,
-        CHILD_USER_POSE_2.leftFingerCurl,
+      ctx.THREE.MathUtils.lerp(
+        ctx.CHILD_USER_POSE_1.leftFingerCurl,
+        ctx.CHILD_USER_POSE_2.leftFingerCurl,
         blend
       )
-      + pulse*CHILD_USER_POSE_FLOW.fingerPulse*.02;
+      + pulse*ctx.CHILD_USER_POSE_FLOW.fingerPulse*.02;
 
     p.rightFingerCurl=
-      THREE.MathUtils.lerp(
-        CHILD_USER_POSE_1.rightFingerCurl,
-        CHILD_USER_POSE_2.rightFingerCurl,
+      ctx.THREE.MathUtils.lerp(
+        ctx.CHILD_USER_POSE_1.rightFingerCurl,
+        ctx.CHILD_USER_POSE_2.rightFingerCurl,
         blend
       )
-      + (1-pulse)*CHILD_USER_POSE_FLOW.fingerPulse*.02;
+      + (1-pulse)*ctx.CHILD_USER_POSE_FLOW.fingerPulse*.02;
 
     childUserApplyPose(c,p);
 
-    const turnP=THREE.MathUtils.clamp(seconds/1.45,0,1);
+    const turnP=ctx.THREE.MathUtils.clamp(seconds/1.45,0,1);
 
     if(stillTurning || turnP<1 || (s?.turnAngleDeg||0)<12){
       childUserApplyLegTurnOverlay(c,turnP);
@@ -172,12 +172,12 @@ function animateChildNewTalk(c){
 const CHILD_USER_POSE_FLOW_STATE=new WeakMap();
 
 function childUserSmooth01(v){
-  const t=THREE.MathUtils.clamp(v,0,1);
+  const t=ctx.THREE.MathUtils.clamp(v,0,1);
   return t*t*(3-2*t);
 }
 
 function childUserCapturePose(c){
-  const b=getBones(c);
+  const b=ctx.getBones(c);
   const out={};
 
   for(const key of [
@@ -189,13 +189,13 @@ function childUserCapturePose(c){
     const bone=b[key];
     if(!bone) continue;
 
-    const r=getRest(c,bone);
+    const r=ctx.getRest(c,bone);
     if(!r) continue;
 
     out[key]=[
-      THREE.MathUtils.radToDeg(bone.rotation.x-r.x),
-      THREE.MathUtils.radToDeg(bone.rotation.y-r.y),
-      THREE.MathUtils.radToDeg(bone.rotation.z-r.z)
+      ctx.THREE.MathUtils.radToDeg(bone.rotation.x-r.x),
+      ctx.THREE.MathUtils.radToDeg(bone.rotation.y-r.y),
+      ctx.THREE.MathUtils.radToDeg(bone.rotation.z-r.z)
     ];
   }
 
@@ -218,9 +218,9 @@ function childUserLerpPose(a,b,t){
     const bv=b?.[key] || [0,0,0];
 
     out[key]=[
-      THREE.MathUtils.lerp(av[0]||0,bv[0]||0,t),
-      THREE.MathUtils.lerp(av[1]||0,bv[1]||0,t),
-      THREE.MathUtils.lerp(av[2]||0,bv[2]||0,t)
+      ctx.THREE.MathUtils.lerp(av[0]||0,bv[0]||0,t),
+      ctx.THREE.MathUtils.lerp(av[1]||0,bv[1]||0,t),
+      ctx.THREE.MathUtils.lerp(av[2]||0,bv[2]||0,t)
     ];
   }
 
@@ -295,10 +295,10 @@ function childUserApplyFingerCurl(c,leftCurl,rightCurl){
     for(const [bone,q0] of map){
       if(!bone) continue;
 
-      const qCurl=new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(
-          THREE.MathUtils.degToRad(
-            THREE.MathUtils.clamp(amount,0,1)*52
+      const qCurl=new ctx.THREE.Quaternion().setFromEuler(
+        new ctx.THREE.Euler(
+          ctx.THREE.MathUtils.degToRad(
+            ctx.THREE.MathUtils.clamp(amount,0,1)*52
           ),
           0,
           0,
@@ -320,21 +320,21 @@ function childUserApplyLegTurnOverlay(c,p){
   const s=CHILD_USER_POSE_FLOW_STATE.get(c);
   const turnAngleDeg=s?.turnAngleDeg||0;
 
-  const b=getBones(c);
+  const b=ctx.getBones(c);
 
-  const turnStrength=THREE.MathUtils.clamp(
+  const turnStrength=ctx.THREE.MathUtils.clamp(
     (turnAngleDeg-12)/55,
     0,
     1
   );
 
-  const phase=THREE.MathUtils.clamp(p,0,1);
+  const phase=ctx.THREE.MathUtils.clamp(p,0,1);
 
   const leftLift=Math.sin(
-    THREE.MathUtils.clamp(phase*2,0,1)*Math.PI
+    ctx.THREE.MathUtils.clamp(phase*2,0,1)*Math.PI
   );
 
-  const rightPhase=THREE.MathUtils.clamp(
+  const rightPhase=ctx.THREE.MathUtils.clamp(
     (phase-.42)/.58,
     0,
     1
@@ -345,14 +345,14 @@ function childUserApplyLegTurnOverlay(c,p){
 
   const move=(bone,dx,dy,dz,speed=.12)=>{
     if(!bone) return;
-    const r=getRest(c,bone);
+    const r=ctx.getRest(c,bone);
     if(!r) return;
 
     ctx.smoothBoneTo(
       bone,
-      r.x+THREE.MathUtils.degToRad(dx),
-      r.y+THREE.MathUtils.degToRad(dy),
-      r.z+THREE.MathUtils.degToRad(dz),
+      r.x+ctx.THREE.MathUtils.degToRad(dx),
+      r.y+ctx.THREE.MathUtils.degToRad(dy),
+      r.z+ctx.THREE.MathUtils.degToRad(dz),
       speed
     );
   };
@@ -408,7 +408,7 @@ function childUserApplyLegTurnOverlay(c,p){
 function childUserApplyPose(c,pose,extra=null){
   if(!c?.ready) return;
 
-  const b=getBones(c);
+  const b=ctx.getBones(c);
 
   for(const key of [
     "spine2",
@@ -420,7 +420,7 @@ function childUserApplyPose(c,pose,extra=null){
     const p=pose?.[key];
     if(!bone || !p) continue;
 
-    childPoseOffsetTarget(
+    ctx.childPoseOffsetTarget(
       c,
       bone,
       p,
@@ -450,18 +450,18 @@ function childUserStartPoseFlow(c){
     const diff=ctx.normalizeAngle(targetYaw-c.root.rotation.y);
 
     turnAngleDeg=Math.abs(
-      THREE.MathUtils.radToDeg(diff)
+      ctx.THREE.MathUtils.radToDeg(diff)
     );
 
     stepStartPos=c.root.position.clone();
 
-    const stepFactor=THREE.MathUtils.clamp(
+    const stepFactor=ctx.THREE.MathUtils.clamp(
       (turnAngleDeg-18)/72,
       0,
       1
     );
 
-    const dir=new THREE.Vector3(dx,0,dz);
+    const dir=new ctx.THREE.Vector3(dx,0,dz);
     if(dir.lengthSq()>.0001){
       dir.normalize();
 

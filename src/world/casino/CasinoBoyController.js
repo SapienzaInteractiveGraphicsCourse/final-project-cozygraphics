@@ -103,7 +103,7 @@ function casinoBoyCaptureRest(){
 }
 function loadCasinoBoy(){
   ctx.loadGLBFromCandidates(
-    ["/assets/models/boy.glb"],
+    [new URL("assets/models/boy.glb", document.baseURI).href],
     (gltf,path)=>{
       const boy=gltf.scene;
       boy.name="casino_boy_gambler";

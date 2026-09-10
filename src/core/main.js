@@ -1,250 +1,22 @@
-/* ===== clearMovementKeysGlobalFallback ===== */
-var clearPlayerControlledMovementKeys = function(){
-  try{
-    if(window.keys){
-      for(const k of [
-        "w","a","s","d",
-        "arrowup","arrowdown","arrowleft","arrowright"
-      ]){
-        window.keys[k]=false;
-      }
-    }
-
-    for(const key of [
-      "w","a","s","d",
-      "ArrowUp","ArrowDown","ArrowLeft","ArrowRight"
-    ]){
-      try{
-        window.dispatchEvent(new KeyboardEvent("keyup",{
-          key,
-          bubbles:true
-        }));
-      }catch(_){}
-    }
-  }catch(_){}
-};
-
-window.clearPlayerControlledMovementKeys =
-  clearPlayerControlledMovementKeys;
-
-
-/* ===== playerPositionHudRuntime ===== */
-(() => {
-  const tick=()=>{
-    const hud=document.getElementById("playerPositionHud");
-    try{
-      if(hud && window.__PLAYER_POSITION_READER__){
-        const p=window.__PLAYER_POSITION_READER__();
-        if(p){
-          }
-      }
-    }catch(_){}
-    requestAnimationFrame(tick);
-  };
-  requestAnimationFrame(tick);
-})();
-
-
-/* ===== clawMachineTunerUI ===== */
-(() => {
-  const defaults={scaleX:1.00,scaleY:1.01,scaleZ:0.91};
-  window.CLAW_MACHINE_TUNING=window.CLAW_MACHINE_TUNING||{...defaults};
-
-  const bind=()=>{
-    document.querySelectorAll("[data-clawmachine]").forEach(input=>{
-      if(input.dataset.bound)return;
-      input.dataset.bound="1";
-      const key=input.dataset.clawmachine;
-      input.value=window.CLAW_MACHINE_TUNING[key];
-      const paint=()=>{
-        document.getElementById("clawMachineVal_"+key).textContent=Number(input.value).toFixed(2)+"×";
-      };
-      paint();
-      input.addEventListener("input",()=>{
-        window.CLAW_MACHINE_TUNING[key]=Number(input.value);
-        paint();
-      });
-    });
-
-    document.getElementById("clawMachineReset")?.addEventListener("click",()=>{
-      Object.assign(window.CLAW_MACHINE_TUNING,defaults);
-      document.querySelectorAll("[data-clawmachine]").forEach(input=>{
-        input.value=defaults[input.dataset.clawmachine];
-        input.dispatchEvent(new Event("input",{bubbles:true}));
-      });
-    });
-
-    document.getElementById("clawMachinePrint")?.addEventListener("click",()=>{
-      console.log("CLAW_MACHINE_TUNING =",JSON.stringify(window.CLAW_MACHINE_TUNING,null,2));
-    });
-
-    document.getElementById("clawMachineClose")?.addEventListener("click",()=>{
-      document.getElementById("clawMachineTuner")?.classList.remove("open");
-    });
-  };
-
-  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",bind,{once:true});
-  else bind();
-})();
-
+import { clearPlayerControlledMovementKeys } from "./inputFallback.js";
+import "../ui/runtime/playerPositionHud.js";
+import "../ui/runtime/clawMachineTuner.js";
+import "../ui/runtime/startupDecor.js";
+import "../ui/runtime/hideDebugPanels.js";
+import { uiNode, uiEditorButton } from "../ui/dom.js";
+import { lerpAngle, normalizeAngle } from "../utils/angles.js";
+import { collectGLBStrings } from "../utils/glb.js";
 
 /* ===== module ===== */
-{
-  const originalWarn=console.warn.bind(console);
-  console.warn=(...args)=>{
-    const text=args.map(v=>String(v)).join(" ");
-    if(
-      text.includes(
-        'THREE.GLTFLoader: Unknown extension "KHR_materials_pbrSpecularGlossiness"'
-      )
-    ){
-      return;
-    }
-    originalWarn(...args);
-  };
-}
 
 
-{
-  const loadingBox=document.getElementById("loadingBox");
-  const loadingBarOuter=document.getElementById("loadingBarOuter");
-  const loadingPercent=document.getElementById("loadingPercent");
 
-  if(loadingBox && loadingBarOuter && loadingPercent){
-    let row=document.getElementById("loadingProgressRow");
 
-    if(!row){
-      row=document.createElement("div");
-      row.id="loadingProgressRow";
 
-      loadingBarOuter.parentNode?.insertBefore(
-        row,
-        loadingBarOuter
-      );
 
-      row.appendChild(loadingBarOuter);
-      row.appendChild(loadingPercent);
-    }
-  }
-}
 
-{
-  const startCard=document.getElementById("gameStartCard");
-  const difficulty=document.getElementById("startDifficulty");
-  const play=document.getElementById("startPlay");
-  const oldLower=document.getElementById("startLower");
 
-  if(startCard && difficulty && play){
 
-    oldLower?.remove();
-
-    startCard
-      .querySelectorAll(":scope > .startSectionLabel")
-      .forEach(el=>el.remove());
-
-    const eyebrow=document.getElementById("startEyebrow");
-    if(eyebrow){
-      eyebrow.textContent="NIGHT INVESTIGATION";
-    }
-
-    const title=document.getElementById("startTitle");
-    if(title){
-      title.textContent="SOLVE THE MYSTERY";
-    }
-
-    const subtitle=document.getElementById("startSubtitle");
-    if(subtitle){
-      subtitle.textContent=
-        "A jewelry store has been robbed. Help the police gather information, follow the clues and catch the thief.";
-    }
-
-    const lower=document.createElement("div");
-    lower.id="startInvestigationLower";
-
-    const investigationCard=document.createElement("section");
-    investigationCard.id="startInvestigationCard";
-    investigationCard.innerHTML=`
-      <div class="startPanelEyebrow">INVESTIGATION</div>
-      <div class="startLensStage" aria-hidden="true">
-        <div class="startLens">
-          <div class="startLensGlass">
-            <div class="startFingerprint">
-              <span></span><span></span><span></span><span></span>
-              <span></span><span></span><span></span><span></span>
-            </div>
-            <div class="startJewelryClue">◆ ◇ ◆</div>
-          </div>
-          <div class="startLensNeck"></div>
-          <div class="startLensHandle"></div>
-        </div>
-        <div class="startLensNotes">
-          Observe<br>
-          Investigate<br>
-          Find the truth
-        </div>
-      </div>
-    `;
-
-    const missionCard=document.createElement("section");
-    missionCard.id="startMissionCard";
-    missionCard.innerHTML=`
-      <div class="startPanelEyebrow">MISSION OVERVIEW</div>
-      <div class="startMissionLead">
-        Explore the district, collect clues, question witnesses and piece together the truth.
-      </div>
-
-      <div class="startMissionDivider"></div>
-
-      <div class="startMissionSteps">
-        <div class="startMissionStep">
-          <div class="startMissionIcon startMissionIconLens"></div>
-          <span>Find clues</span>
-        </div>
-        <div class="startMissionStep">
-          <div class="startMissionIcon startMissionIconDoc"></div>
-          <span>Gather information</span>
-        </div>
-        <div class="startMissionStep">
-          <div class="startMissionIcon startMissionIconTarget"></div>
-          <span>Catch the thief</span>
-        </div>
-      </div>
-
-      <div class="startMissionQuote">
-        “Small details can make a big difference.”
-      </div>
-    `;
-
-    lower.append(investigationCard,missionCard);
-    startCard.appendChild(lower);
-
-    missionCard.appendChild(play);
-  }
-}
-
-function uiNode(tag,opts={},...children){
-  const node=document.createElement(tag);
-  if(opts.id) node.id=opts.id;
-  if(opts.className) node.className=opts.className;
-  if(opts.text!==undefined) node.textContent=String(opts.text);
-  if(opts.style) node.style.cssText=opts.style;
-  if(opts.attrs){
-    for(const [key,value] of Object.entries(opts.attrs)){
-      if(value===true) node.setAttribute(key,"");
-      else if(value!==false && value!==null && value!==undefined){
-        node.setAttribute(key,String(value));
-      }
-    }
-  }
-  for(const child of children.flat(Infinity)){
-    if(child===null || child===undefined || child===false) continue;
-    node.append(child instanceof Node ? child : document.createTextNode(String(child)));
-  }
-  return node;
-}
-function uiEditorButton(text,attrs={}){
-  return uiNode("button",{text,attrs});
-}
 
 import {
   initRoadCore as roadInitCore,
@@ -280,7 +52,46 @@ import {
   drawMinimap as renderMinimap
 } from "../ui/Minimap.js";
 import { mergeGeometries } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js";
+
 import * as THREE from "three";
+
+const PROJECT_ROOT_URL=new URL("./",document.baseURI);
+
+THREE.DefaultLoadingManager.setURLModifier((url)=>{
+  try{
+    const raw=String(url||"");
+
+    const relativeAssetMatch=raw.match(
+      /^(?:(?:\.\.\/)+|\.\/|\/)?assets\/(.+)$/
+    );
+
+    if(relativeAssetMatch){
+      return new URL(
+        `assets/${relativeAssetMatch[1]}`,
+        PROJECT_ROOT_URL
+      ).href;
+    }
+
+    if(/^https?:\/\//i.test(raw)){
+      const parsed=new URL(raw);
+
+      if(
+        parsed.origin===location.origin &&
+        parsed.pathname.startsWith("/assets/")
+      ){
+        return new URL(
+          `assets/${parsed.pathname.slice("/assets/".length)}${parsed.search}${parsed.hash}`,
+          PROJECT_ROOT_URL
+        ).href;
+      }
+    }
+  }catch(error){
+    console.warn("Asset URL resolver:",error);
+  }
+
+  return url;
+});
+
 import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
 import { Player } from "../classes/Player.js";
 import { NPC } from "../classes/NPC.js";
@@ -1884,23 +1695,7 @@ const START_PLAYER_PREVIEW={
   clock:new THREE.Clock(),
   loaded:false
 };
-function collectGLBStrings(value,out=new Set(),depth=0){
-  if(depth>5 || value==null) return out;
-  if(typeof value==="string"){
-    if(/\.glb(?:$|\?)/i.test(value)) out.add(value);
-    return out;
-  }
-  if(Array.isArray(value)){
-    for(const v of value) collectGLBStrings(v,out,depth+1);
-    return out;
-  }
-  if(typeof value==="object"){
-    for(const v of Object.values(value)){
-      collectGLBStrings(v,out,depth+1);
-    }
-  }
-  return out;
-}
+
 function disposeStartPlayerPreview(){
   if(START_PLAYER_PREVIEW.raf){
     cancelAnimationFrame(START_PLAYER_PREVIEW.raf);
@@ -6065,13 +5860,8 @@ function printHierarchy(obj,depth=0){
   if(obj.isGroup) info.push("Group");
   obj.children.forEach((child)=>printHierarchy(child,depth+1));
 }
-function lerpAngle(a,b,t){
-  const diff=Math.atan2(Math.sin(b-a),Math.cos(b-a));
-  return a+diff*t;
-}
-function normalizeAngle(angle){
-  return Math.atan2(Math.sin(angle),Math.cos(angle));
-}
+
+
 function smoothBoneTo(bone,x,y,z,lerp=0.28){
   if(!bone) return;
   bone.rotation.x=THREE.MathUtils.lerp(bone.rotation.x,x,lerp);
@@ -20521,55 +20311,3 @@ function setCasinoFloorTint(hex){
 }
 
 window.addEventListener("load",()=>{ setCasinoFloorTint("#28496C"); });
-
-
-/* ===== hideDynamicDebugEditorPanels ===== */
-(()=>{
-  const hidePanel=(el)=>{
-    if(!(el instanceof HTMLElement)) return;
-    const id=(el.id||"").toLowerCase();
-    const allowedSecurityPanel =
-      id==="securityoldtalkpanel" ||
-      id==="securityfinalposeeditor" ||
-      id==="securitytalk2panel" ||
-      id==="moonlightcoloreditor" ||
-      id==="securityturnposeeditor" ||
-      id==="securityturntuner" ||
-      id==="securitylowerbodyeditor" ||
-      id==="securityunifiedtalkpanel" ||
-      id==="finalscenelayoutdebugpanel" ||
-      id==="finalpositioneditor" ||
-      id==="casinocharacteryeditor";
-
-    const looksLikeEditor =
-      el.dataset?.keepVisible!=="true" &&
-      !allowedSecurityPanel &&
-      (
-        (id!=="securityunifiedtalkpanel" && id.includes("security") && id.includes("panel")) ||
-        (id.includes("arrest") && id.includes("panel")) ||
-        (id.includes("handcuff") && id.includes("panel")) ||
-        (id.includes("pose") && id.includes("editor"))
-      );
-
-    if(looksLikeEditor){
-      el.style.setProperty("display","none","important");
-      el.style.setProperty("visibility","hidden","important");
-      el.style.setProperty("pointer-events","none","important");
-    }
-  };
-
-  addEventListener("DOMContentLoaded",()=>{
-    document.querySelectorAll("[id]").forEach(hidePanel);
-
-    new MutationObserver(records=>{
-      for(const record of records){
-        for(const node of record.addedNodes){
-          if(node instanceof HTMLElement){
-            hidePanel(node);
-            node.querySelectorAll?.("[id]").forEach(hidePanel);
-          }
-        }
-      }
-    }).observe(document.body,{childList:true,subtree:true});
-  });
-})();

@@ -1,22 +1,159 @@
-import { clearPlayerControlledMovementKeys } from "./inputFallback.js";
-import "../ui/runtime/playerPositionHud.js";
-import "../ui/runtime/clawMachineTuner.js";
-import "../ui/runtime/startupDecor.js";
-import "../ui/runtime/hideDebugPanels.js";
-import { uiNode, uiEditorButton } from "../ui/dom.js";
-import { lerpAngle, normalizeAngle } from "../utils/angles.js";
-import { collectGLBStrings } from "../utils/glb.js";
-
-/* ===== module ===== */
-
-
-
-
-
-
+{
+  const originalWarn=console.warn.bind(console);
+  console.warn=(...args)=>{
+    const text=args.map(v=>String(v)).join(" ");
+    if(
+      text.includes(
+        'THREE.GLTFLoader: Unknown extension "KHR_materials_pbrSpecularGlossiness"'
+      )
+    ){
+      return;
+    }
+    originalWarn(...args);
+  };
+}
 
 
+{
+  const loadingBox=document.getElementById("loadingBox");
+  const loadingBarOuter=document.getElementById("loadingBarOuter");
+  const loadingPercent=document.getElementById("loadingPercent");
 
+  if(loadingBox && loadingBarOuter && loadingPercent){
+    let row=document.getElementById("loadingProgressRow");
+
+    if(!row){
+      row=document.createElement("div");
+      row.id="loadingProgressRow";
+
+      loadingBarOuter.parentNode?.insertBefore(
+        row,
+        loadingBarOuter
+      );
+
+      row.appendChild(loadingBarOuter);
+      row.appendChild(loadingPercent);
+    }
+  }
+}
+
+{
+  const startCard=document.getElementById("gameStartCard");
+  const difficulty=document.getElementById("startDifficulty");
+  const play=document.getElementById("startPlay");
+  const oldLower=document.getElementById("startLower");
+
+  if(startCard && difficulty && play){
+
+    oldLower?.remove();
+
+    startCard
+      .querySelectorAll(":scope > .startSectionLabel")
+      .forEach(el=>el.remove());
+
+    const eyebrow=document.getElementById("startEyebrow");
+    if(eyebrow){
+      eyebrow.textContent="NIGHT INVESTIGATION";
+    }
+
+    const title=document.getElementById("startTitle");
+    if(title){
+      title.textContent="SOLVE THE MYSTERY";
+    }
+
+    const subtitle=document.getElementById("startSubtitle");
+    if(subtitle){
+      subtitle.textContent=
+        "A jewelry store has been robbed. Help the police gather information, follow the clues and catch the thief.";
+    }
+
+    const lower=document.createElement("div");
+    lower.id="startInvestigationLower";
+
+    const investigationCard=document.createElement("section");
+    investigationCard.id="startInvestigationCard";
+    investigationCard.innerHTML=`
+      <div class="startPanelEyebrow">INVESTIGATION</div>
+      <div class="startLensStage" aria-hidden="true">
+        <div class="startLens">
+          <div class="startLensGlass">
+            <div class="startFingerprint">
+              <span></span><span></span><span></span><span></span>
+              <span></span><span></span><span></span><span></span>
+            </div>
+            <div class="startJewelryClue">◆ ◇ ◆</div>
+          </div>
+          <div class="startLensNeck"></div>
+          <div class="startLensHandle"></div>
+        </div>
+        <div class="startLensNotes">
+          Observe<br>
+          Investigate<br>
+          Find the truth
+        </div>
+      </div>
+    `;
+
+    const missionCard=document.createElement("section");
+    missionCard.id="startMissionCard";
+    missionCard.innerHTML=`
+      <div class="startPanelEyebrow">MISSION OVERVIEW</div>
+      <div class="startMissionLead">
+        Explore the district, collect clues, question witnesses and piece together the truth.
+      </div>
+
+      <div class="startMissionDivider"></div>
+
+      <div class="startMissionSteps">
+        <div class="startMissionStep">
+          <div class="startMissionIcon startMissionIconLens"></div>
+          <span>Find clues</span>
+        </div>
+        <div class="startMissionStep">
+          <div class="startMissionIcon startMissionIconDoc"></div>
+          <span>Gather information</span>
+        </div>
+        <div class="startMissionStep">
+          <div class="startMissionIcon startMissionIconTarget"></div>
+          <span>Catch the thief</span>
+        </div>
+      </div>
+
+      <div class="startMissionQuote">
+        “Small details can make a big difference.”
+      </div>
+    `;
+
+    lower.append(investigationCard,missionCard);
+    startCard.appendChild(lower);
+
+    missionCard.appendChild(play);
+  }
+}
+
+function uiNode(tag,opts={},...children){
+  const node=document.createElement(tag);
+  if(opts.id) node.id=opts.id;
+  if(opts.className) node.className=opts.className;
+  if(opts.text!==undefined) node.textContent=String(opts.text);
+  if(opts.style) node.style.cssText=opts.style;
+  if(opts.attrs){
+    for(const [key,value] of Object.entries(opts.attrs)){
+      if(value===true) node.setAttribute(key,"");
+      else if(value!==false && value!==null && value!==undefined){
+        node.setAttribute(key,String(value));
+      }
+    }
+  }
+  for(const child of children.flat(Infinity)){
+    if(child===null || child===undefined || child===false) continue;
+    node.append(child instanceof Node ? child : document.createTextNode(String(child)));
+  }
+  return node;
+}
+function uiEditorButton(text,attrs={}){
+  return uiNode("button",{text,attrs});
+}
 
 import {
   initRoadCore as roadInitCore,
@@ -52,46 +189,7 @@ import {
   drawMinimap as renderMinimap
 } from "../ui/Minimap.js";
 import { mergeGeometries } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js";
-
 import * as THREE from "three";
-
-const PROJECT_ROOT_URL=new URL("./",document.baseURI);
-
-THREE.DefaultLoadingManager.setURLModifier((url)=>{
-  try{
-    const raw=String(url||"");
-
-    const relativeAssetMatch=raw.match(
-      /^(?:(?:\.\.\/)+|\.\/|\/)?assets\/(.+)$/
-    );
-
-    if(relativeAssetMatch){
-      return new URL(
-        `assets/${relativeAssetMatch[1]}`,
-        PROJECT_ROOT_URL
-      ).href;
-    }
-
-    if(/^https?:\/\//i.test(raw)){
-      const parsed=new URL(raw);
-
-      if(
-        parsed.origin===location.origin &&
-        parsed.pathname.startsWith("/assets/")
-      ){
-        return new URL(
-          `assets/${parsed.pathname.slice("/assets/".length)}${parsed.search}${parsed.hash}`,
-          PROJECT_ROOT_URL
-        ).href;
-      }
-    }
-  }catch(error){
-    console.warn("Asset URL resolver:",error);
-  }
-
-  return url;
-});
-
 import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js";
 import { Player } from "../classes/Player.js";
 import { NPC } from "../classes/NPC.js";
@@ -158,6 +256,9 @@ import {
   CASINO_COLLIDER_EDIT,
   CAR_COLLISION_EDIT
 } from "../systems/CollisionSystem.js?v=pass8";
+
+
+const __PROJECT_BASE_URL__ = new URL("../../", import.meta.url);
 
 function drawMinimap(){
   renderMinimap({
@@ -1695,7 +1796,23 @@ const START_PLAYER_PREVIEW={
   clock:new THREE.Clock(),
   loaded:false
 };
-
+function collectGLBStrings(value,out=new Set(),depth=0){
+  if(depth>5 || value==null) return out;
+  if(typeof value==="string"){
+    if(/\.glb(?:$|\?)/i.test(value)) out.add(value);
+    return out;
+  }
+  if(Array.isArray(value)){
+    for(const v of value) collectGLBStrings(v,out,depth+1);
+    return out;
+  }
+  if(typeof value==="object"){
+    for(const v of Object.values(value)){
+      collectGLBStrings(v,out,depth+1);
+    }
+  }
+  return out;
+}
 function disposeStartPlayerPreview(){
   if(START_PLAYER_PREVIEW.raf){
     cancelAnimationFrame(START_PLAYER_PREVIEW.raf);
@@ -4022,7 +4139,7 @@ const PLAYER_TURN_TUNING={...PLAYER_TURN_TUNING_DEFAULTS};
 const AD_CURRENT_DEFAULTS=Object.freeze({
   targetScale:.82,rootLerpMin:.032,rootLerpMax:.066,snapDeg:.35,
   fullStrengthDeg:90,bodyResponseLerp:.048,pivotMotion:.26,
-  walkCycleScale:1,legMotionScale:1,footMotionScale:1,
+  walkCycleScale:.82,legMotionScale:1,footMotionScale:1,
   bodyWalkScale:1,baseArmAnimationScale:1,turnArmOverlayScale:.22
 });
 const AD_CURRENT={...AD_CURRENT_DEFAULTS};
@@ -4515,7 +4632,7 @@ function makeTiledTexture(path,repeatX,repeatY){
   return tex;
 }
 
-const outdoorGrassTexture=textureLoader.load("./assets/textures/grass.png");
+const outdoorGrassTexture=textureLoader.load(new URL("../../assets/textures/grass.png", import.meta.url).href);
 outdoorGrassTexture.wrapS=THREE.RepeatWrapping;
 outdoorGrassTexture.wrapT=THREE.RepeatWrapping;
 outdoorGrassTexture.repeat.set(21,90);
@@ -4536,7 +4653,7 @@ if (typeof sidewalkConcreteTex !== 'undefined') {
   sidewalkConcreteTex.needsUpdate=true;
 }
 const unifiedSidewalkMat=new THREE.MeshStandardMaterial({
-  map:makeTiledTexture("./assets/textures/concrete.jpg",1,1),
+  map:makeTiledTexture(new URL("../../assets/textures/concrete.jpg", import.meta.url).href,1,1),
   roughness:.86,
   metalness:0,
   side:THREE.DoubleSide
@@ -5065,7 +5182,7 @@ function loadArchitecturalDoorGLB({name,path,centerX,z,targetWidth,targetHeight}
 }
 loadArchitecturalDoorGLB({
   name:"doorCasino_model",
-  path:"./assets/models/doorCasino.glb",
+  path:new URL("../../assets/models/doorCasino.glb", import.meta.url).href,
   centerX:leftDoorX,
   z:SCENE_ENV_CONFIG.doorZ+.18,
   targetWidth:SCENE_ENV_CONFIG.doorWidth*1.10,
@@ -5073,7 +5190,7 @@ loadArchitecturalDoorGLB({
 });
 loadArchitecturalDoorGLB({
   name:"doorPub_model",
-  path:"./assets/models/doorPub.glb",
+  path:new URL("../../assets/models/doorPub.glb", import.meta.url).href,
   centerX:SCENE_ENV_CONFIG.rightRoomCenterX,
   z:SCENE_ENV_CONFIG.doorZ+.18,
   targetWidth:SCENE_ENV_CONFIG.doorWidth*1.10,
@@ -5860,8 +5977,13 @@ function printHierarchy(obj,depth=0){
   if(obj.isGroup) info.push("Group");
   obj.children.forEach((child)=>printHierarchy(child,depth+1));
 }
-
-
+function lerpAngle(a,b,t){
+  const diff=Math.atan2(Math.sin(b-a),Math.cos(b-a));
+  return a+diff*t;
+}
+function normalizeAngle(angle){
+  return Math.atan2(Math.sin(angle),Math.cos(angle));
+}
 function smoothBoneTo(bone,x,y,z,lerp=0.28){
   if(!bone) return;
   bone.rotation.x=THREE.MathUtils.lerp(bone.rotation.x,x,lerp);
@@ -7149,7 +7271,7 @@ function loadCharacter(c){
 }
 let casinoPokerTable=null;
 
-loader.load("./assets/models/pokerTable.glb",(gltf)=>{
+loader.load(new URL("../../assets/models/pokerTable.glb", import.meta.url).href,(gltf)=>{
   const poker=gltf.scene;
   poker.name="casino_poker_table";
   poker.position.set(-23.900,-2.500,-28.700);
@@ -7945,7 +8067,7 @@ function casinoBoyCaptureRest(){
 }
 function loadCasinoBoy(){
   ctx.loadGLBFromCandidates(
-    ["./assets/models/boy.glb"],
+    [new URL("../../assets/models/boy.glb", import.meta.url).href],
     (gltf,path)=>{
       const boy=gltf.scene;
       boy.name="casino_boy_gambler";
@@ -11840,7 +11962,7 @@ function refreshGardenPalmEditor(){
 
 loadGLBFromCandidates(
   [
-    "./assets/models/trees.glb",
+    new URL("../../assets/models/trees.glb", import.meta.url).href,
     ],
   (gltf,path)=>{
     const source=gltf.scene;
@@ -11992,7 +12114,7 @@ function refreshGardenExhibitionLampEditor(){
     `STEP ${GARDEN_EXHIBITION_LAMPS.step.toFixed(2)}`;
 }
 loader.load(
-  "./assets/models/Lampione.glb",
+  new URL("../../assets/models/Lampione.glb", import.meta.url).href,
   (gltf)=>{
     let shortPart=gltf.scene.getObjectByName("375770_Lampione_Lightstar");
     if(!shortPart){
@@ -12076,7 +12198,7 @@ loader.load(
   (error)=>console.error("Errore caricando Lampione.glb",error)
 );
 loader.load(
-  "./assets/models/lampioneFuori.glb",
+  new URL("../../assets/models/lampioneFuori.glb", import.meta.url).href,
   (gltf)=>{
     const source=gltf.scene;
     function createFrontWallLamp(name,x,y,rotationY=0){
@@ -14555,6 +14677,73 @@ const PLAYER_PROCEDURAL_WALK_CONFIG={
   armAmount:0.70,
   shoulderIn:0.29,
   shoulderPoseX:0.00,
+  shoulderPoseY:-0.45,
+  shoulderPoseZ:0.00,
+  armPoseX:0.00,
+  armPoseY:0.00,
+  armPoseZ:0.00,
+  forearmPoseX:0.20,
+  forearmPoseY:0.00,
+  forearmPoseZ:0.00,
+  handPoseX:-0.08,
+  handPoseY:-0.08,
+  handPoseZ:0.00,
+  armSwingX:1.00,
+  armSwingY:0.00,
+  armSwingZ:0.00,
+  forearmSwingX:0.12,
+  forearmSwingY:0.00,
+  forearmSwingZ:0.00,
+  handSwingX:0.00,
+  handSwingY:0.00,
+  handSwingZ:0.00,
+  floorClearance:0.075,
+  mirrorArmPose:true,
+  invertLeftArm:false,
+  invertRightArm:false,
+  invertHips:false,
+  invertKnees:false,
+  cycleRadiansPerSecond:4.40,
+  shoulderSwingFactor:0.05,
+  toeFactor:0.52,
+  pelvisTwist:0.012,
+  pelvisRoll:0.004,
+  breathingSway:0.003,
+  oldArms:{
+    shoulderZ:0.0,
+    armSwingX:-0.01,
+    armBaseX:-0.04,
+    leftArmZMin:0.10,
+    leftArmZMax:-0.30,
+    rightArmZMin:-0.10,
+    rightArmZMax:0.30,
+    foreArmBaseX:0.06,
+    foreArmMoveX:0.045,
+    leftForeArmZBase:0.00,
+    leftForeArmZMin:0.15,
+    leftForeArmZMax:0.25,
+    rightForeArmZBase:0.00,
+    rightForeArmZMin:-0.15,
+    rightForeArmZMax:-0.25,
+    handZ:0.025
+  },
+  walkPoseLerp:0.28,
+  stopPoseLerp:0.075,
+  stopPositionLerp:0.08
+};
+
+// Dedicated procedural configuration for A/D turn-in-place.
+// It starts IDENTICAL to PLAYER_PROCEDURAL_WALK_CONFIG so you can tune it independently.
+const PLAYER_PROCEDURAL_TURN_CONFIG={
+  format:"procedural-walk-config",
+  version:1,
+  speed:1.12,
+  stride:0.250,
+  knee:0.78,
+  ankle:0.32,
+  armAmount:0.70,
+  shoulderIn:0.29,
+  shoulderPoseX:0.00,
   shoulderPoseY:-0.41,
   shoulderPoseZ:0.00,
   armPoseX:0.00,
@@ -14592,9 +14781,9 @@ const PLAYER_PROCEDURAL_WALK_CONFIG={
     armSwingX:-0.01,
     armBaseX:-0.04,
     leftArmZMin:0.20,
-    leftArmZMax:-0.50,
+    leftArmZMax:-0.20,
     rightArmZMin:-0.20,
-    rightArmZMax:0.50,
+    rightArmZMax:0.20,
     foreArmBaseX:0.06,
     foreArmMoveX:0.045,
     leftForeArmZBase:0.00,
@@ -14609,6 +14798,7 @@ const PLAYER_PROCEDURAL_WALK_CONFIG={
   stopPoseLerp:0.075,
   stopPositionLerp:0.08
 };
+
 const PLAYER_AXIS_RIGHT=new THREE.Vector3(1,0,0);
 const PLAYER_AXIS_UP=new THREE.Vector3(0,1,0);
 const PLAYER_AXIS_FORWARD=new THREE.Vector3(0,0,1);
@@ -14950,7 +15140,7 @@ function applyPlayerOldArms(c,state,phase,isWalking){
   }
 }
 function applyPlayerOldArmsTurn(c,state,phase){
-  const cfg=PLAYER_PROCEDURAL_WALK_CONFIG.oldArms;
+  const cfg=PLAYER_PROCEDURAL_TURN_CONFIG.oldArms;
   const b=state.bones;
   const pose=getPose(c);
 
@@ -15194,7 +15384,10 @@ const AD_TURN_WALK={...AD_TURN_WALK_DEFAULTS};
 
 function animatePlayerWalk(c,direction=1,strafe=0){
 if(!c.ready || !c.model) return;
-  const cfg=PLAYER_PROCEDURAL_WALK_CONFIG;
+  const isADTurn=AD_CURRENT_FRAME_ACTIVE===true;
+  const cfg=isADTurn
+    ? PLAYER_PROCEDURAL_TURN_CONFIG
+    : PLAYER_PROCEDURAL_WALK_CONFIG;
   const state=getPlayerProceduralState(c);
   const b=state.bones;
   const now=performance.now();
@@ -15210,7 +15403,9 @@ const lateralTurnOnly=
     lateralTurnOnly ? .028 : 1.0;
 
   const soloTurnLegScale=
-    lateralTurnOnly ? AD_TURN_WALK.legScale : 1.0;
+    lateralTurnOnly
+      ? AD_TURN_WALK.legScale
+      : 1.0;
   state.phase+=
     delta*
     cfg.cycleRadiansPerSecond*
@@ -15240,7 +15435,9 @@ const lateralTurnOnly=
 
 
   const turnFootScale=
-    lateralTurnOnly ? AD_TURN_WALK.footScale : 1.0;
+    lateralTurnOnly
+      ? AD_TURN_WALK.footScale
+      : 1.0;
 
   const turnToeScale=
     lateralTurnOnly ? 0.0 : 1.0;
@@ -15530,7 +15727,10 @@ const lateralTurnOnly=
     lateralTurnOnly ? PLAYER_HAND_TUNING.turnFingerCurl : PLAYER_HAND_TUNING.walkFingerCurl
   );
 
-  const turnBodyScale=lateralTurnOnly ? .10 : 1.0;
+  const turnBodyScale=
+    lateralTurnOnly
+      ? .10
+      : 1.0;
   const pelvisTwist=Math.sin(state.phase)*cfg.pelvisTwist*turnBodyScale;
   const pelvisRoll=Math.sin(state.phase*2)*cfg.pelvisRoll*turnBodyScale;
   const bodyBreath=Math.sin(state.phase*2)*cfg.breathingSway*turnBodyScale;
@@ -15539,7 +15739,9 @@ const lateralTurnOnly=
   const travelLean=
     gaitDirection<0
       ? -0.012
-      : (lateralTurnOnly ? 0.0015 : 0.010);
+      : (lateralTurnOnly
+          ? 0.0015
+          : 0.010);
   setPlayerBoneAxisRotation(c,state,b.hips,PLAYER_AXIS_UP,pelvisTwist);
   addPlayerBoneAxisRotation(c,b.hips,PLAYER_AXIS_FORWARD,pelvisRoll);
   setPlayerBoneAxisRotation(c,state,b.spine,PLAYER_AXIS_UP,-pelvisTwist*0.30);
@@ -15553,11 +15755,14 @@ const lateralTurnOnly=
   setPlayerBoneAxisRotation(c,state,b.head,PLAYER_AXIS_UP,pelvisTwist*0.035);
   if(b.hips && state.restP.has(b.hips)){
     b.hips.position.copy(state.restP.get(b.hips));
-    b.hips.position.x+=Math.sin(state.phase)*0.018;
-    b.hips.position.y+=Math.cos(state.phase*2)*0.018;
+    const turnBodyPosScale=
+      1;
+    b.hips.position.x+=Math.sin(state.phase)*0.018*turnBodyPosScale;
+    b.hips.position.y+=Math.cos(state.phase*2)*0.018*turnBodyPosScale;
     b.hips.position.z+=
       Math.sin(state.phase)*
-      (lateralTurnOnly ? 0.0025 : 0.010);
+      (lateralTurnOnly ? 0.0025 : 0.010)*
+      turnBodyPosScale;
   }
   blendPlayerPoseFromSnapshot(
     state,

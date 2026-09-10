@@ -3072,12 +3072,22 @@ function maxPerfFreeze(root){
 const loadingManager=new THREE.LoadingManager();
 let sceneBooted=false;
 
+// Keep track of every asset handled by the shared LoadingManager.
+// GitHub Pages can load GLB/textures more slowly than localhost, so the
+// game only becomes interactive after the manager has been quiet for a
+// short stabilization window.
+let managedAssetsLoading=false;
+let lastManagedAssetActivity=performance.now();
+const ASSET_QUIET_WINDOW_MS=1200;
+
 let gameplayInputEnabled=false;
 let mainAnimationStarted=false;
 const STARTUP_STABILIZATION_MS=2000;
 let moduleInitializationComplete=false;
 let loadingCompletedBeforeModuleInit=false;
 loadingManager.onStart=(url,itemsLoaded,itemsTotal)=>{
+  managedAssetsLoading=true;
+  lastManagedAssetActivity=performance.now();
   if(START_GATE.accepted && loadingScreen){
     loadingScreen.classList.remove("hidden");
   }
@@ -3090,6 +3100,7 @@ function setLoadingProgress(pct,status){
   if(loadingText && status) loadingText.textContent=status;
 }
 loadingManager.onProgress=(url,itemsLoaded,itemsTotal)=>{
+  lastManagedAssetActivity=performance.now();
   const assetPct=itemsTotal>0 ? (itemsLoaded/itemsTotal)*25 : 0;
   setLoadingProgress(assetPct,"Loading assets");
 };
@@ -3604,9 +3615,14 @@ function finishSceneLoading(){
 RoadBuilders.mainHideRoadsideGrassStrips(getRoadBuilderContext());
   rebuildTaskReferenceLimitsFromMaster();
 
-  if(typeof lcBuildAll==="function"){
-    lcBuildAll();
-  }
+  // IMPORTANT: do not build the complete collision world here.
+  // finishSceneLoading() starts several asynchronous GLB loads just above.
+  // On a fast localhost they may appear almost immediately, while on
+  // GitHub Pages some of them can still be missing at this point.  Building
+  // once here would set LIGHT_COLLISION.built=true too early and leave those
+  // late objects without their final collider until another rebuild happens.
+  // The authoritative collision build is performed below, only after the
+  // shared LoadingManager has become completely quiet.
 
   rebuildDefinitiveGardenTreeCollisions();
   rebuildProceduralGardenTreeShadows();
@@ -3731,16 +3747,71 @@ disableOldLocalLightsKeepMoon(scene);
 
       applyPointLightTuning();
 
-      gameplayInputEnabled=true;
-      for(const k of Object.keys(keys)) keys[k]=false;
-      if(loadingScreen) loadingScreen.classList.add("hidden");
-      document.body.classList.remove("loading-active");
-      document.body.classList.add("game-ready");
+      // Do not unlock gameplay just because the local warm-up finished.
+      // Wait until all managed assets have actually finished loading and
+      // no new GLB/texture request has started for a short period.
+      const unlockWhenAssetsAreStable=()=>{
+        const quietFor=performance.now()-lastManagedAssetActivity;
+        if(managedAssetsLoading || quietFor<ASSET_QUIET_WINDOW_MS){
+          setLoadingProgress(95,"Finishing world");
+          setTimeout(unlockWhenAssetsAreStable,100);
+          return;
+        }
+
+        // Everything is now in its final scene position.  Build the collision
+        // world only now, after every managed GLB/texture request has finished
+        // and no new request has appeared during the quiet window.  This keeps
+        // casino collisions active from the beginning of gameplay, even while
+        // the player is still outside the casino.
+        try{
+          scene.updateMatrixWorld(true);
+
+          // First and only full static build. lcBuildAll() sets
+          // LIGHT_COLLISION.built=true, so doing it here prevents a partial
+          // localhost-vs-GitHub build caused by late assets.
+          if(!LIGHT_COLLISION.built && typeof lcBuildAll==="function"){
+            lcBuildAll();
+          }
+
+          // Re-sync colliders whose source objects can be loaded/repositioned
+          // asynchronously. These calls do not depend on entering the casino.
+          refreshGardenObjectCollisions?.();
+          rebuildArchitecturalDoorColliders?.();
+          rebuildShopFrontLampCollisions?.();
+          rebuildDefinitiveGardenTreeCollisions?.();
+          rebuildCasinoEditableColliders?.();
+          lcBuildBarricadeFromVisual?.();
+          lcSyncAllCharacters?.();
+          lcSyncCars?.();
+          lcSyncShopDoors?.();
+          rebuildPlayerCollisionBlocks?.();
+
+          scene.updateMatrixWorld(true);
+
+          if(COLLISION_DEBUG?.enabled){
+            rebuildCollisionDebugStatic?.();
+            rebuildCollisionDebugPlayer?.();
+          }
+        }catch(e){
+          console.warn("Final collision rebuild skipped",e);
+        }
+
+        setLoadingProgress(100,"Ready");
+        gameplayInputEnabled=true;
+        for(const k of Object.keys(keys)) keys[k]=false;
+        if(loadingScreen) loadingScreen.classList.add("hidden");
+        document.body.classList.remove("loading-active");
+        document.body.classList.add("game-ready");
+      };
+
+      unlockWhenAssetsAreStable();
     };
     requestAnimationFrame(finishHiddenLiveStart);
   });
 }
 loadingManager.onLoad=()=>{
+  managedAssetsLoading=false;
+  lastManagedAssetActivity=performance.now();
   if(!moduleInitializationComplete){
     loadingCompletedBeforeModuleInit=true;
     return;

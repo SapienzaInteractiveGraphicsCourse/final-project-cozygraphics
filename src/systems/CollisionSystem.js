@@ -156,7 +156,11 @@ export const CASINO_COLLIDER_EDIT={
     depthScale:.76,
     heightScale:1.00,
     offsetX:0,
-    offsetZ:0
+    offsetZ:0,
+
+    // Slightly enlarge the collider only on the side opposite the child.
+    // This keeps the child-side edge essentially where it already was.
+    extraAwayFromChild:.20
   }
 };
 
@@ -608,12 +612,56 @@ export function rebuildCasinoEditableColliderData({
     const heightScale=Math.max(.05,edit.heightScale||1);
     const minY=b.box.min.y-.05;
     const maxY=minY+Math.max(.30,b.size.y*heightScale);
+
+    let cx=b.center.x+(edit.offsetX||0);
+    let cz=b.center.z+(edit.offsetZ||0);
+    let hx=Math.max(.18,b.size.x*.5*Math.max(.05,edit.widthScale));
+    let hz=Math.max(.18,b.size.z*.5*Math.max(.05,edit.depthScale));
+
+    // Optional asymmetric extension away from the child.
+    // Increasing half-size by extra/2 and shifting the center by extra/2
+    // grows only one side of the collider while keeping the child-facing
+    // side almost unchanged.
+    const extra=Math.max(0,Number(edit.extraAwayFromChild)||0);
+    const childObj=objects?.child;
+
+    if(extra>0 && childObj && childObj.parent && childObj.visible!==false){
+      const childBounds=bounds(childObj);
+
+      if(childBounds){
+        const dx=childBounds.center.x-cx;
+        const dz=childBounds.center.z-cz;
+
+        // Transform child direction into the object's local X/Z frame.
+        const c=Math.cos(yaw);
+        const s=Math.sin(yaw);
+        const localChildX= dx*c + dz*s;
+        const localChildZ=-dx*s + dz*c;
+
+        const halfExtra=extra*.5;
+
+        // Extend along the local axis that most clearly points toward/away
+        // from the child, but in the opposite direction.
+        if(Math.abs(localChildX)>=Math.abs(localChildZ)){
+          hx+=halfExtra;
+          const localShiftX=(localChildX>=0 ? -halfExtra : halfExtra);
+          cx+=localShiftX*c;
+          cz+=localShiftX*s;
+        }else{
+          hz+=halfExtra;
+          const localShiftZ=(localChildZ>=0 ? -halfExtra : halfExtra);
+          cx+=-localShiftZ*s;
+          cz+= localShiftZ*c;
+        }
+      }
+    }
+
     makeBox(
       `casino_editable_${key}`,
-      b.center.x+(edit.offsetX||0),
-      b.center.z+(edit.offsetZ||0),
-      Math.max(.18,b.size.x*.5*Math.max(.05,edit.widthScale)),
-      Math.max(.18,b.size.z*.5*Math.max(.05,edit.depthScale)),
+      cx,
+      cz,
+      hx,
+      hz,
       minY,maxY,obj,yaw
     );
   };

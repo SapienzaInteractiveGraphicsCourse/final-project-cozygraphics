@@ -90,10 +90,10 @@ export const MUSEUM_PANEL_WORLD_VALUES={
 export const GARDEN_FEATURE_ASSETS={
   stone:[],
   fountain:[
-    "../assets/models/fountain.glb",
+    "./assets/models/fountain.glb",
     
-    "./fountain.glb",
-    "fountain.glb"
+    "./assets/models/fountain.glb",
+    "./assets/models/fountain.glb"
   ]
 };
 

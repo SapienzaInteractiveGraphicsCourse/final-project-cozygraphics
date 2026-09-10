@@ -1959,6 +1959,29 @@ canvas{display:block}
   background:linear-gradient(135deg,#0f76c8,#0c4f8f);
   box-shadow:0 0 18px rgba(57,169,255,.24);
 }
+
+#shadowToggle{
+  position:fixed;
+  left:18px;
+  top:100px;
+  z-index:9812;
+  padding:8px 11px;
+  border:1px solid rgba(170,180,195,.42);
+  border-radius:8px;
+  background:rgba(20,24,32,.94);
+  color:#d9dde5;
+  font:900 9px Arial,sans-serif;
+  letter-spacing:.12em;
+  cursor:pointer;
+  user-select:none;
+}
+#shadowToggle.active{
+  border-color:rgba(120,210,255,.62);
+  background:linear-gradient(135deg,#145f8f,#103b5d);
+  color:#f4fbff;
+  box-shadow:0 0 18px rgba(75,180,255,.22);
+}
+
 #armColliderEditorTitle{margin-bottom:10px;color:#73bcff;font-weight:900;letter-spacing:.12em}
 #armColliderSelect{width:100%;height:32px;margin-bottom:9px;border:1px solid rgba(115,190,255,.20);border-radius:7px;background:#0b1c36;color:white;font-weight:800}
 #armColliderValues{margin-bottom:10px;padding:8px;border-radius:7px;background:rgba(255,255,255,.045);color:#bcd0e8;font:10px/1.45 monospace;white-space:pre-wrap}
@@ -2100,6 +2123,7 @@ body.game-ready #settingsToggle{
 
 body:not(.game-ready) #settingsToggle,
 body:not(.game-ready) #collisionDebugToggle,
+body:not(.game-ready) #shadowToggle,
 body:not(.game-ready) #gardenGateEditor,
 body:not(.game-ready) #gateLeafLeftEditor,
 body:not(.game-ready) #gateLeafRightEditor,
@@ -2635,6 +2659,7 @@ window.clearPlayerControlledMovementKeys =
   </div>
   <div id="settingsToggle">SETTINGS</div>
   <div id="collisionDebugToggle">COLLISIONS</div>
+  <div id="shadowToggle">SHADOWS: OFF</div>
 
 
   <div id="settingsPanel">

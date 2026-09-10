@@ -446,13 +446,13 @@ const loadingPercent=document.getElementById("loadingPercent");
 const scene=new THREE.Scene();
 const LIGHTING_GLOBAL=createGlobalLights(scene);
 const moonLight=LIGHTING_GLOBAL.moonLight;
-moonLight.castShadow=true;
+moonLight.castShadow=false;
 const ambientFill=LIGHTING_GLOBAL.ambientFill;
 const skyFill=LIGHTING_GLOBAL.skyFill;
 const FIXED_LIGHT_POOL=createFixedLightPool(scene,{
   count:3,
   color:0xffe2b8,
-  distance:18,
+  distance:20,
   decay:2,
   sourceRefreshStep:3.0,
   updateStep:.25,
@@ -2072,6 +2072,79 @@ COLLISION_DEBUG.group.name="collision_debug_group";
 COLLISION_DEBUG.group.visible=false;
 scene.add(COLLISION_DEBUG.group);
 
+const GARDEN_MOON_SHADOW_LAYER=3;
+
+const SHADOW_UI_STATE={
+  enabled:false
+};
+
+const shadowToggle=document.getElementById("shadowToggle");
+
+function syncShadowToggleForZone(){
+  const inCasino=activeWorldZone==="leftRoom";
+
+  if(shadowToggle){
+    shadowToggle.disabled=inCasino;
+    shadowToggle.style.opacity=inCasino ? ".42" : "";
+    shadowToggle.style.pointerEvents=inCasino ? "none" : "";
+    shadowToggle.title=inCasino
+      ? "Shadows disabled inside casino"
+      : "";
+  }
+
+  if(inCasino && SHADOW_UI_STATE.enabled){
+    setRuntimeShadowsEnabled(false);
+  }
+}
+
+function setRuntimeShadowsEnabled(enabled){
+  if(activeWorldZone==="leftRoom"){
+    enabled=false;
+  }
+
+  SHADOW_UI_STATE.enabled=!!enabled;
+
+  shadowToggle?.classList.toggle("active",SHADOW_UI_STATE.enabled);
+  if(shadowToggle){
+    shadowToggle.textContent=
+      SHADOW_UI_STATE.enabled
+        ? "SHADOWS: ON"
+        : "SHADOWS: OFF";
+  }
+
+  if(!SHADOW_UI_STATE.enabled){
+    // Stop local lamp shadow lights immediately.
+    for(const rig of [
+      LOCAL_LAMP_SHADOWS?.player,
+      LOCAL_LAMP_SHADOWS?.security
+    ]){
+      if(!rig?.light) continue;
+      rig.currentIntensity=0;
+      rig.light.intensity=0;
+      rig.light.visible=false;
+      rig.light.castShadow=false;
+    }
+
+    // Stop moon/player garden shadows immediately.
+    moonLight.castShadow=false;
+    setPlayerGardenDirectionalShadowEnabled(false);
+
+    if(renderer?.shadowMap){
+      renderer.shadowMap.needsUpdate=true;
+    }
+  }else{
+    if(renderer?.shadowMap){
+      renderer.shadowMap.enabled=true;
+      renderer.shadowMap.autoUpdate=true;
+      renderer.shadowMap.needsUpdate=true;
+    }
+  }
+}
+
+shadowToggle?.addEventListener("click",()=>{
+  setRuntimeShadowsEnabled(!SHADOW_UI_STATE.enabled);
+});
+
 const collisionDebugToggle=document.getElementById("collisionDebugToggle");
 collisionDebugToggle?.addEventListener("click",()=>{
   COLLISION_DEBUG.enabled=!COLLISION_DEBUG.enabled;
@@ -2741,7 +2814,7 @@ const PROCEDURAL_GARDEN_TREE_SHADOWS=
     {
       offsetX:-0.60,
       offsetZ:2.58,
-      opacity:.46
+      opacity:.64
     }
   );
 
@@ -3107,7 +3180,10 @@ async function warmUpPlayerBehindLoading(done){
   updateSecurityPostTalkArms();
   updateChildPostTalkArms();
 
-  renderer.render(scene,camera);
+  if(renderer?.shadowMap && activeWorldZone==="leftRoom"){
+  renderer.shadowMap.enabled=false;
+}
+renderer.render(scene,camera);
     viewFrame++;
     const doneFrames=viewIndex*framesPerView+viewFrame;
     const pct=25+Math.round((doneFrames/totalViewFrames)*55);
@@ -3326,6 +3402,7 @@ async function warmUpPlayerBehindLoading(done){
       if(!opaque && !isGardenLampOrExhibitSign) return;
 
       obj.castShadow=true;
+      obj.layers.enable(GARDEN_MOON_SHADOW_LAYER);
       obj.receiveShadow=true;
     });
 
@@ -3339,6 +3416,7 @@ async function warmUpPlayerBehindLoading(done){
       lamp.traverse?.(obj=>{
         if(!obj?.isMesh) return;
         obj.castShadow=true;
+      obj.layers.enable(GARDEN_MOON_SHADOW_LAYER);
         obj.receiveShadow=true;
       });
       lamp.updateMatrixWorld?.(true);
@@ -3357,6 +3435,7 @@ async function warmUpPlayerBehindLoading(done){
         return;
       }
       obj.castShadow=true;
+      obj.layers.enable(GARDEN_MOON_SHADOW_LAYER);
       obj.receiveShadow=true;
       obj.updateMatrixWorld?.(true);
     });
@@ -3384,6 +3463,7 @@ async function warmUpPlayerBehindLoading(done){
         return;
       }
       obj.castShadow=true;
+      obj.layers.enable(GARDEN_MOON_SHADOW_LAYER);
       obj.receiveShadow=true;
       obj.updateMatrixWorld?.(true);
     });
@@ -3394,6 +3474,7 @@ async function warmUpPlayerBehindLoading(done){
     gateBarricades?.traverse?.(obj=>{
       if(!obj?.isMesh && !obj?.isInstancedMesh) return;
       obj.castShadow=true;
+      obj.layers.enable(GARDEN_MOON_SHADOW_LAYER);
       obj.receiveShadow=true;
       obj.frustumCulled=true;
       obj.updateMatrixWorld?.(true);
@@ -3407,14 +3488,16 @@ async function warmUpPlayerBehindLoading(done){
       barricade?.traverse?.(obj=>{
         if(!obj?.isMesh) return;
         obj.castShadow=true;
+      obj.layers.enable(GARDEN_MOON_SHADOW_LAYER);
         obj.receiveShadow=true;
         obj.updateMatrixWorld?.(true);
       });
     }
 
-    moonLight.castShadow=true;
+    moonLight.castShadow=false;
 
     if(moonLight.shadow){
+      moonLight.shadow.camera.layers.set(GARDEN_MOON_SHADOW_LAYER);
       moonLight.shadow.mapSize.set(2048,2048);
       moonLight.shadow.bias=-0.00035;
       moonLight.shadow.normalBias=.02;
@@ -5974,6 +6057,18 @@ function getPlayerGardenDirectionalShadowBounds(){
   };
 }
 
+function isPlayerNearGardenForRuntimeUpdates(extra=35){
+  if(activeWorldZone!=="outside" || !player?.root) return false;
+  const b=getPlayerGardenDirectionalShadowBounds();
+  const p=player.root.position;
+  return (
+    p.x>=b.xMin-extra &&
+    p.x<=b.xMax+extra &&
+    p.z>=b.zMin-extra &&
+    p.z<=b.zMax+extra
+  );
+}
+
 function isPlayerInsideGardenDirectionalShadowZone(){
   if(
     activeWorldZone!=="outside" ||
@@ -5993,6 +6088,7 @@ function isPlayerInsideGardenDirectionalShadowZone(){
     p.z<=b.zMax
   );
 }
+
 
 function updatePlayerGardenShadowFade(dt,insideGarden){
   const s=PLAYER_GARDEN_DIRECTIONAL_SHADOW;
@@ -6049,20 +6145,23 @@ function updatePlayerGardenShadowFade(dt,insideGarden){
 function setPlayerGardenDirectionalShadowEnabled(enabled){
   enabled=!!enabled;
 
-  if(
-    PLAYER_GARDEN_DIRECTIONAL_SHADOW.enabled===enabled &&
-    player?.model
-  ){
-    return;
-  }
-
+  // Always re-apply the Moon layer state.
+  // castShadow remains available for the local lamp shadow system.
   PLAYER_GARDEN_DIRECTIONAL_SHADOW.enabled=enabled;
 
   player?.model?.traverse?.(obj=>{
     if(!obj?.isMesh) return;
 
+    obj.castShadow=
+      SHADOW_UI_STATE.enabled &&
+      activeWorldZone!=="leftRoom";
 
-    obj.castShadow=enabled;
+    if(enabled){
+      obj.layers.enable(GARDEN_MOON_SHADOW_LAYER);
+    }else{
+      obj.layers.disable(GARDEN_MOON_SHADOW_LAYER);
+    }
+
     obj.receiveShadow=true;
   });
 
@@ -6093,6 +6192,15 @@ function setPlayerGardenDirectionalShadowEnabled(enabled){
 }
 
 function updatePlayerGardenBlobShadow(dt){
+  if(
+    !SHADOW_UI_STATE.enabled ||
+    activeWorldZone!=="outside"
+  ){
+    moonLight.castShadow=false;
+    setPlayerGardenDirectionalShadowEnabled(false);
+    return;
+  }
+
   const insideGarden=
     isPlayerInsideGardenDirectionalShadowZone();
 
@@ -6102,22 +6210,42 @@ function updatePlayerGardenBlobShadow(dt){
       insideGarden
     );
 
-
-  const shouldCast=
+  const shouldPlayerCast=
     insideGarden ||
     fade>.015;
 
+  // Moon shadow wakes up only when Player is close to the garden entrance.
+  // This keeps the expensive DirectionalLight shadow asleep elsewhere.
+  const nearGardenForMoon=
+    isPlayerNearGardenForRuntimeUpdates(8);
+
+  moonLight.castShadow=
+    nearGardenForMoon ||
+    shouldPlayerCast;
+
+  // Player joins Moon shadow only when entering/inside the garden.
   setPlayerGardenDirectionalShadowEnabled(
-    shouldCast
+    shouldPlayerCast
   );
 
-  if(!shouldCast) return;
+  // Security never participates in the Moon shadow.
+  const security=
+    typeof npcs!=="undefined"
+      ? npcs.find(n=>n?.name==="securityMan")
+      : null;
 
-  moonLight.castShadow=true;
+  security?.model?.traverse?.(obj=>{
+    if(!obj?.isMesh) return;
+    obj.layers.disable(GARDEN_MOON_SHADOW_LAYER);
+  });
 
   if(renderer?.shadowMap){
     renderer.shadowMap.enabled=true;
-    renderer.shadowMap.needsUpdate=true;
+
+    if(moonLight.castShadow || shouldPlayerCast){
+      renderer.shadowMap.autoUpdate=true;
+      renderer.shadowMap.needsUpdate=true;
+    }
   }
 }
 
@@ -6570,7 +6698,18 @@ function loadCharacter(c){
       c.setModel(model);
       c.model?.traverse?.(obj=>{
         if(!obj?.isMesh) return;
-        obj.castShadow=false;
+
+        // Player + Security keep LOCAL lamp shadows.
+        obj.castShadow=
+          c.name==="player" ||
+          c.name==="securityMan";
+
+        // Moon shadow is separate:
+        // Security never joins it; Player joins only near/inside the garden.
+        if(c.name==="player" || c.name==="securityMan"){
+          obj.layers.disable(GARDEN_MOON_SHADOW_LAYER);
+        }
+
         obj.receiveShadow=true;
       });
       c.model.scale.multiplyScalar(1.15);
@@ -9896,7 +10035,7 @@ loader.load(
         lamp,
         new THREE.Vector3(0,height*.84,0),
         lightIntensity,
-        15,
+        17,
         0xffdfa0
       );
       STREET_ASSETS.shortLamps.push(lamp);
@@ -9927,8 +10066,8 @@ loader.load(
         0,
         7.8,
         isShopFrontLamp
-          ? 1.85
-          : (isNearFrontLamp ? 2.25 : 1.85)
+          ? 2.05
+          : (isNearFrontLamp ? 2.48 : 2.05)
       );
     }
     rebuildShopFrontLampCollisions();
@@ -9958,10 +10097,14 @@ loader.load(
       addLampGlow(
         lamp,
         new THREE.Vector3(0,-.28,.50),
-        1.55,
-        10,
+        1.70,
+        11.5,
         0xffdfa0
       );
+
+      // Also expose wall-mounted lamps to the local shadow system.
+      if(!STREET_ASSETS.wallLamps) STREET_ASSETS.wallLamps=[];
+      STREET_ASSETS.wallLamps.push(lamp);
     }
     createFrontWallLamp(
       "casino_front_wall_lamp",
@@ -11331,6 +11474,7 @@ function setWorldZone(zoneKey){
     zoneKey==="leftRoom";
   setCasinoInteriorLighting(enteringCasino);
   activeWorldZone=zoneKey;
+  syncShadowToggleForZone();
   currentZoneLabel.textContent="";
 }
 
@@ -11353,6 +11497,20 @@ function runDoorTransition(zoneKey,targetPosition,targetRotation){
   const leavingCasino=
     zoneKey==="outside" &&
     previousZone==="leftRoom";
+
+  if(enteringCasino){
+    setRuntimeShadowsEnabled(false);
+    if(shadowToggle){
+      shadowToggle.disabled=true;
+      shadowToggle.style.opacity=".42";
+      shadowToggle.style.pointerEvents="none";
+      shadowToggle.textContent="SHADOWS: OFF";
+    }
+  }else if(leavingCasino && shadowToggle){
+    shadowToggle.disabled=false;
+    shadowToggle.style.opacity="";
+    shadowToggle.style.pointerEvents="";
+  }
 
   const transitionLabel=
     enteringCasino
@@ -14120,6 +14278,7 @@ function freezePerformanceStaticWorld(){
       obj.matrixAutoUpdate=false;
       if("matrixWorldAutoUpdate" in obj) obj.matrixWorldAutoUpdate=false;
       obj.castShadow=false;
+      obj.receiveShadow=true;
       obj.frustumCulled=true;
     }
   });
@@ -14306,6 +14465,257 @@ function updateAutoPerformance(now){
 
 applyAutoPerformanceMode("high",true);
 
+const LOCAL_LAMP_SHADOWS={
+  updateStep:.06,
+  accumulator:0,
+  maxDistance:14,
+  fadeStartDistance:12,
+  fadeFullDistance:5.0,
+
+  // Two dedicated shadow lights: one follows the lamp nearest the player,
+  // one follows the lamp nearest the Security.
+  player:null,
+  security:null,
+
+  debugMarkersBuilt:false
+};
+
+function lampHeadWorldPosition(lamp,target){
+  if(!lamp || !target) return target;
+  lamp.getWorldPosition(target);
+
+  const n=String(lamp.name||"").toLowerCase();
+
+  if(n.includes("front_wall_lamp")){
+    // Wall lamps are already positioned high on the facade.
+    // Nudge toward the luminous face rather than adding street-lamp height.
+    target.y-=.28;
+    target.z+=.50;
+  }else{
+    // Short street lamps are ~7.8m high; use their luminous head.
+    target.y+=7.8*.84;
+  }
+
+  return target;
+}
+
+function nearestStreetLampInfoTo(root){
+  if(!root) return null;
+
+  const rp=root.position;
+  let bestLamp=null;
+  let bestSq=LOCAL_LAMP_SHADOWS.maxDistance*LOCAL_LAMP_SHADOWS.maxDistance;
+
+  const lampCandidates=[
+    ...(STREET_ASSETS?.shortLamps || []),
+    ...(STREET_ASSETS?.wallLamps || [])
+  ];
+
+  for(const lamp of lampCandidates){
+    if(!lamp || lamp.visible===false) continue;
+
+    const lampName=String(lamp.name||"");
+
+    // The two lateral lamps after the curve keep only their original PointLight.
+    // No expensive SpotLight shadow for them.
+    if(
+      lampName==="sidewalk_short_lamp_3" ||
+      lampName==="sidewalk_short_lamp_4"
+    ){
+      continue;
+    }
+
+    const worldPos=new THREE.Vector3();
+    lamp.getWorldPosition(worldPos);
+
+    const dx=worldPos.x-rp.x;
+    const dz=worldPos.z-rp.z;
+    const d2=dx*dx+dz*dz;
+
+    if(d2<bestSq){
+      bestSq=d2;
+      bestLamp=lamp;
+    }
+  }
+
+  if(!bestLamp) return null;
+
+  return {
+    lamp:bestLamp,
+    distance:Math.sqrt(bestSq)
+  };
+}
+
+function lampShadowFade(distance){
+  if(!Number.isFinite(distance)) return 0;
+
+  const start=LOCAL_LAMP_SHADOWS.fadeStartDistance;
+  const full=LOCAL_LAMP_SHADOWS.fadeFullDistance;
+
+  if(distance>=start) return 0;
+  if(distance<=full) return 1;
+
+  const t=(start-distance)/Math.max(.001,start-full);
+  return THREE.MathUtils.smoothstep(
+    THREE.MathUtils.clamp(t,0,1),
+    0,
+    1
+  );
+}
+
+function createCharacterLampShadowRig(name){
+  const light=new THREE.SpotLight(
+    0xb9bec4,
+    0,
+    18,
+    THREE.MathUtils.degToRad(15),
+    .78,
+    1.70
+  );
+  light.name=`${name}_lamp_shadow_spot`;
+  light.castShadow=true;
+
+  light.shadow.mapSize.set(1024,1024);
+  light.shadow.bias=-0.00035;
+  light.shadow.normalBias=.012;
+  if("radius" in light.shadow) light.shadow.radius=.85;
+
+  const cam=light.shadow.camera;
+  if(cam){
+    cam.near=.20;
+    cam.far=19;
+    cam.updateProjectionMatrix?.();
+  }
+
+  const target=new THREE.Object3D();
+  target.name=`${name}_lamp_shadow_target`;
+
+  scene.add(light);
+  scene.add(target);
+  light.target=target;
+
+  return {
+    light,
+    target,
+    currentIntensity:0,
+    lamp:null
+  };
+}
+
+function ensureLampShadowRigs(){
+  if(!LOCAL_LAMP_SHADOWS.player){
+    LOCAL_LAMP_SHADOWS.player=
+      createCharacterLampShadowRig("player");
+  }
+
+  if(!LOCAL_LAMP_SHADOWS.security){
+    LOCAL_LAMP_SHADOWS.security=
+      createCharacterLampShadowRig("security");
+  }
+}
+
+function updateCharacterLampShadowRig(rig,characterRoot,dt){
+  if(!rig) return;
+
+  const info=nearestStreetLampInfoTo(characterRoot);
+  const targetFade=info ? lampShadowFade(info.distance) : 0;
+
+  rig.currentIntensity=
+    THREE.MathUtils.lerp(
+      rig.currentIntensity,
+      targetFade,
+      THREE.MathUtils.clamp((dt||1/60)*7.5,.08,.32)
+    );
+
+  if(info?.lamp){
+    rig.lamp=info.lamp;
+
+    const lampPos=new THREE.Vector3();
+    lampHeadWorldPosition(info.lamp,lampPos);
+
+    rig.light.position.copy(lampPos);
+
+    if(characterRoot){
+      rig.target.position.set(
+        characterRoot.position.x,
+        characterRoot.position.y+.75,
+        characterRoot.position.z
+      );
+    }
+
+    rig.light.updateMatrixWorld?.(true);
+    rig.target.updateMatrixWorld?.(true);
+  }
+
+  // Stronger than the decorative PointLights, but still faded in/out.
+  // This makes the cast shadow clearly readable without using moon shadow.
+  rig.light.intensity=8.40*rig.currentIntensity;
+  rig.light.visible=rig.currentIntensity>.01;
+  rig.light.castShadow=rig.currentIntensity>.01;
+}
+
+function buildLampDebugMarkers(){}
+
+function updateLocalLampShadows(dt){
+  if(
+    !SHADOW_UI_STATE.enabled ||
+    activeWorldZone==="leftRoom"
+  ){
+    return;
+  }
+
+  LOCAL_LAMP_SHADOWS.accumulator+=Math.max(0,dt||0);
+  if(LOCAL_LAMP_SHADOWS.accumulator<LOCAL_LAMP_SHADOWS.updateStep) return;
+
+  const stepDt=LOCAL_LAMP_SHADOWS.accumulator;
+  LOCAL_LAMP_SHADOWS.accumulator=0;
+
+  ensureLampShadowRigs();
+
+  const security=
+    typeof npcs!=="undefined"
+      ? npcs.find(n=>n?.name==="securityMan")
+      : null;
+
+  // Only player and Security cast these dynamic lamp shadows.
+  player?.model?.traverse?.(obj=>{
+    if(obj?.isMesh){
+      obj.castShadow=true;
+      obj.receiveShadow=true;
+    }
+  });
+
+  security?.model?.traverse?.(obj=>{
+    if(obj?.isMesh){
+      // Security DOES cast local lamp shadows.
+      obj.castShadow=true;
+      obj.receiveShadow=true;
+
+      // Security NEVER casts Moon/Directional shadow.
+      obj.layers.disable(GARDEN_MOON_SHADOW_LAYER);
+    }
+  });
+
+  updateCharacterLampShadowRig(
+    LOCAL_LAMP_SHADOWS.player,
+    player?.root,
+    stepDt
+  );
+
+  updateCharacterLampShadowRig(
+    LOCAL_LAMP_SHADOWS.security,
+    security?.root,
+    stepDt
+  );
+
+
+  if(renderer?.shadowMap){
+    renderer.shadowMap.enabled=true;
+    renderer.shadowMap.autoUpdate=true;
+    renderer.shadowMap.needsUpdate=true;
+  }
+}
+
 function samplePlayerPerformance(){
   PLAYER_PERF_SAMPLE.frames++;
   const now=performance.now();
@@ -14349,6 +14759,9 @@ function setCasinoRuntimeSleeping(sleeping){
 let BACKGROUND_UI_ACCUM=0;
 const BACKGROUND_UI_STEP=.25;
 
+let FAR_GARDEN_ACCUM=0;
+let FAR_GARDEN_SHADOW_ACCUM=0;
+
 function animate(rafNow){
   requestAnimationFrame(animate);
   const now=Number.isFinite(rafNow)
@@ -14386,7 +14799,17 @@ function animate(rafNow){
   PERF_RUNTIME.editorAccumulator+=dt;
   PERF_RUNTIME.tikiAnimAccumulator+=dt;
   updatePlayer();
+  updateLocalLampShadows(dt);
   const casinoRuntimeActive=activeWorldZone==="leftRoom";
+  if(renderer?.shadowMap){
+    // Inside casino: behave exactly like global Shadow OFF.
+    // Outside casino: restore the user's normal shadow state.
+    if(casinoRuntimeActive){
+      renderer.shadowMap.enabled=false;
+    }else{
+      renderer.shadowMap.enabled=true;
+    }
+  }
   setCasinoRuntimeSleeping(!casinoRuntimeActive);
   if(runBackgroundUI){
     const walletPromptActive=
@@ -14456,7 +14879,9 @@ function animate(rafNow){
   }
 
   PERF_RUNTIME.gardenVisualAccumulator=(PERF_RUNTIME.gardenVisualAccumulator||0)+dt;
-  if(PERF_RUNTIME.gardenVisualAccumulator>=.25){
+  const nearGardenRuntime=isPlayerNearGardenForRuntimeUpdates();
+  const gardenVisualStep=nearGardenRuntime ? .25 : 2.50;
+  if(PERF_RUNTIME.gardenVisualAccumulator>=gardenVisualStep){
     PERF_RUNTIME.gardenVisualAccumulator=0;
     gardenBuild("updateGardenFountainWater");
   }
@@ -14526,14 +14951,33 @@ function animate(rafNow){
   if(typeof updateCleanPlayerCamera==="function"){
     updateCleanPlayerCamera();
   }
+
+
   if(MAX_PERF.interaction===0 && ui){
     }
-  updatePlayerGardenBlobShadow(dt);
+  FAR_GARDEN_SHADOW_ACCUM+=dt;
+  const gardenShadowNeedsFullRate=
+    nearGardenRuntime ||
+    PLAYER_GARDEN_DIRECTIONAL_SHADOW.fade>.015;
+
+  if(gardenShadowNeedsFullRate || FAR_GARDEN_SHADOW_ACCUM>=1.50){
+    const gardenShadowDt=FAR_GARDEN_SHADOW_ACCUM;
+    FAR_GARDEN_SHADOW_ACCUM=0;
+    updatePlayerGardenBlobShadow(gardenShadowDt);
+  }
+
   enforceFinalThiefVisible();
   updateFinalSecurityDialogueFacing();
   updateThiefHandcuffEditor();
   updateSecurityPoseEditor();
   updateSecurityLowerBodyEditor();
+
+  if(activeWorldZone==="leftRoom" && renderer?.shadowMap){
+    renderer.shadowMap.enabled=false;
+  }else if(renderer?.shadowMap && SHADOW_UI_STATE.enabled){
+    renderer.shadowMap.enabled=true;
+  }
+
 renderer.render(scene,camera);
   samplePlayerPerformance();
 }

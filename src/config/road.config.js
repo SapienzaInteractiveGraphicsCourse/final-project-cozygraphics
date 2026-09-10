@@ -101,6 +101,6 @@ export const ROAD_CONFIG={
   },
 
   textures:{
-    asphalt:"./assets/textures/asp.jpg"
+    asphalt:new URL("../../assets/textures/asp.jpg", import.meta.url).href
   }
 };

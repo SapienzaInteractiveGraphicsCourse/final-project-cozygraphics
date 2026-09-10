@@ -108,3 +108,67 @@ export const CASINO_STALE_GEOMETRY_NAMES=[
   "casino_inner_single_purple_wall",
   "casino_existing_wall_gap_fill"
 ];
+
+
+export const CASINO_MODEL_CONFIG={
+  receptionist:{
+    paths:["./assets/models/receptionist.glb"],
+    position:[-28.359,0.150,-6.164],
+    rotation:[0,116,0],
+    scale:[2.7017,2.7017,2.7017]
+  },
+  pokerTable:{
+    paths:["./assets/models/pokerTable.glb"],
+    position:[-23.900,-2.500,-28.700],
+    rotation:[0,0,0],
+    scale:[2.6761,2.6761,2.6761]
+  },
+  frame1:{
+    paths:["./assets/models/frame1.glb","./src/frame1.glb"],
+    position:[-12.800,4.150,-34.660],
+    rotation:[0,0,0],
+    scale:[1.3124,1.3124,1.3124]
+  },
+  frame2:{
+    paths:["./assets/models/frame2.glb","./src/frame2.glb"],
+    position:[-28.110,4.400,-13.400],
+    rotation:[0,-90,0],
+    scale:[5.2207,5.2207,5.2207]
+  },
+  tv1:{
+    paths:["./assets/models/tv_sony.glb","./src/tv_sony.glb"],
+    position:[-32.400,3.850,-18.020],
+    rotation:[0,150,0],
+    scale:[2.0005,2.0005,2.0005]
+  },
+  tv2:{
+    position:[-28.600,3.850,-13.820],
+    rotation:[0,240,0],
+    scale:[2.0005,2.0005,2.0005]
+  },
+  jukebox:{
+    paths:["./assets/models/jukebox.glb","./src/jukebox.glb"],
+    position:[-7.400,0.450,-22.000],
+    rotation:[0,90,0],
+    scale:[1.8077,1.8077,1.8077]
+  },
+  reception:{
+    paths:["./assets/models/reception.glb","./src/reception.glb"],
+    position:[-29.300,0,-5.000],
+    rotation:[0,180,0],
+    scale:[0.0030,0.0030,0.0030]
+  },
+
+  boy:{
+    paths:["./assets/models/boy.glb","./src/boy.glb","boy.glb"],
+    position:[-29.800,0.150,-18.550],
+    rotation:[2,270,0],
+    scale:[2.7749,2.7749,2.7749]
+  },
+  entryWallD:{
+    width:12.0,
+    depth:.45,
+    position:[-30.100,4.550,-13.600],
+    rotationY:0
+  }
+};

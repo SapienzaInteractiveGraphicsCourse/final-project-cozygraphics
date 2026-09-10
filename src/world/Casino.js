@@ -4,7 +4,8 @@ import {
   CASINO_ROOM_STYLE,
   CASINO_FACADE_CONFIG,
   CASINO_DOOR_SEAL_CONFIG,
-  CASINO_STALE_GEOMETRY_NAMES
+  CASINO_STALE_GEOMETRY_NAMES,
+  CASINO_MODEL_CONFIG
 } from "../config/casino.config.js";
 
 export let CASINO_WORLD=null;
@@ -737,3 +738,186 @@ export function buildCasinoGeometry(ctx){
 
   return CASINO_WORLD;
 }
+
+
+function applyModelTransform(ctx,model,cfg){
+  const THREE=ctx.THREE;
+  model.position.set(...cfg.position);
+  model.rotation.set(
+    THREE.MathUtils.degToRad(cfg.rotation[0]),
+    THREE.MathUtils.degToRad(cfg.rotation[1]),
+    THREE.MathUtils.degToRad(cfg.rotation[2])
+  );
+  model.scale.set(...cfg.scale);
+  model.updateMatrixWorld(true);
+}
+
+export function buildCasinoEntryGeometry(ctx){
+  const cfg=CASINO_MODEL_CONFIG.entryWallD;
+  const wallMat=ctx.facadeMaterials?.casinoWall ||
+    new ctx.THREE.MeshStandardMaterial({
+      color:0x120018,
+      roughness:.96,
+      metalness:0
+    });
+  const wall=new ctx.THREE.Mesh(
+    new ctx.THREE.BoxGeometry(
+      cfg.width,
+      CASINO_BUILDING_CONFIG.roomHeight,
+      cfg.depth
+    ),
+    wallMat.clone ? wallMat.clone() : wallMat
+  );
+  wall.name="casino_entryWallD";
+  wall.position.set(...cfg.position);
+  wall.rotation.set(
+    0,
+    ctx.THREE.MathUtils.degToRad(cfg.rotationY),
+    0
+  );
+  wall.castShadow=false;
+  wall.receiveShadow=true;
+  ctx.scene.add(wall);
+  ctx.registerCasinoEditable?.("entryWallD",wall);
+  ctx.rebuildCasinoEditableColliders?.();
+  return wall;
+}
+
+export function loadCasinoStaticGLBs(ctx){
+  const state={
+    pokerTable:null,
+    frame1:null,
+    frame2:null,
+    tv:null,
+    tv2:null,
+    jukebox:null,
+    reception:null
+  };
+
+  const prep=(model)=>{
+    ctx.prepareCasinoEditableModel?.(model);
+    return model;
+  };
+
+  ctx.loadGLBFromCandidates(
+    CASINO_MODEL_CONFIG.pokerTable.paths,
+    (gltf)=>{
+      const poker=prep(gltf.scene);
+      poker.name="casino_poker_table";
+      applyModelTransform(ctx,poker,CASINO_MODEL_CONFIG.pokerTable);
+      ctx.scene.add(poker);
+      state.pokerTable=poker;
+      ctx.registerCasinoEditable?.("pokerTable",poker);
+      ctx.onPokerLoaded?.(poker);
+    }
+  );
+
+  const loadFrame=(key,name)=>{
+    const cfg=CASINO_MODEL_CONFIG[key];
+    ctx.loadGLBFromCandidates(
+      cfg.paths,
+      (gltf)=>{
+        const model=gltf.scene;
+        model.name=name;
+        ctx.cloneMaterials?.(model);
+        ctx.prepareStaticGLB?.(model);
+        applyModelTransform(ctx,model,cfg);
+        model.traverse(o=>{
+          if(o.isMesh){
+            o.castShadow=false;
+            o.receiveShadow=false;
+            o.frustumCulled=true;
+          }
+        });
+        ctx.scene.add(model);
+        state[key]=model;
+        ctx.registerCasinoEditable?.(key,model);
+        if(key==="frame2"){
+          ctx.registerCasinoEditable?.("poster",model);
+        }
+        ctx.onFrameLoaded?.(key,model);
+      },
+      err=>console.error("Casino artwork load error",name,err)
+    );
+  };
+  loadFrame("frame1","casino_frame1_art");
+  loadFrame("frame2","casino_frame2_art");
+
+  ctx.loadGLBFromCandidates(
+    CASINO_MODEL_CONFIG.tv1.paths,
+    (gltf)=>{
+      const tv=prep(gltf.scene);
+      tv.name="casino_tv_sony";
+      applyModelTransform(ctx,tv,CASINO_MODEL_CONFIG.tv1);
+      ctx.scene.add(tv);
+      state.tv=tv;
+      ctx.registerCasinoEditable?.("tv",tv);
+
+      const tv2=prep(gltf.scene.clone(true));
+      tv2.name="casino_tv_sony_2";
+      applyModelTransform(ctx,tv2,CASINO_MODEL_CONFIG.tv2);
+      ctx.scene.add(tv2);
+      state.tv2=tv2;
+      ctx.registerCasinoEditable?.("tv2",tv2);
+
+      ctx.onTvLoaded?.(tv,tv2);
+    },
+    err=>console.error("tv_sony.glb load error",err)
+  );
+
+  ctx.loadGLBFromCandidates(
+    CASINO_MODEL_CONFIG.jukebox.paths,
+    (gltf)=>{
+      const jukebox=prep(gltf.scene);
+      jukebox.name="casino_jukebox";
+      applyModelTransform(ctx,jukebox,CASINO_MODEL_CONFIG.jukebox);
+
+      const lightMaterials=[];
+      const lightNames=new Set([
+        "lights_1","lights_2","lights_3","lights_4",
+        "lights_5","lights_6","lights"
+      ]);
+
+      jukebox.traverse(o=>{
+        if(!o.isMesh || !o.material) return;
+        if(Array.isArray(o.material)){
+          o.material=o.material.map(m=>m?.clone?.() || m);
+        }else{
+          o.material=o.material.clone();
+        }
+        const mats=Array.isArray(o.material)?o.material:[o.material];
+        for(const mat of mats){
+          const n=String(mat.name||"").trim().toLowerCase();
+          if(!lightNames.has(n) || !mat.emissive) continue;
+          mat.emissive.setHex(0x000000);
+          mat.emissiveIntensity=0;
+          lightMaterials.push(mat);
+        }
+      });
+
+      ctx.scene.add(jukebox);
+      state.jukebox=jukebox;
+      ctx.registerCasinoEditable?.("jukebox",jukebox);
+      ctx.onJukeboxLoaded?.(jukebox,lightMaterials);
+    },
+    err=>console.error("jukebox.glb load error",err)
+  );
+
+  ctx.loadGLBFromCandidates(
+    CASINO_MODEL_CONFIG.reception.paths,
+    (gltf)=>{
+      const reception=prep(gltf.scene);
+      reception.name="casino_reception";
+      applyModelTransform(ctx,reception,CASINO_MODEL_CONFIG.reception);
+      ctx.scene.add(reception);
+      state.reception=reception;
+      ctx.registerCasinoEditable?.("reception",reception);
+      ctx.onReceptionLoaded?.(reception);
+    },
+    err=>console.error("reception.glb load error",err)
+  );
+
+  return state;
+}
+
+

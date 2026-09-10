@@ -1393,3 +1393,188 @@ export function setCarBodyColor(ctx,car,color){
     }
   });
 }
+
+
+export function createConcreteJerseyBarrierGeometry(THREE,width,height,depth){
+  const yz=[
+    [-depth*.50,0],
+    [-depth*.50,height*.13],
+    [-depth*.37,height*.18],
+    [-depth*.24,height*.47],
+    [-depth*.20,height*.80],
+    [-depth*.15,height*.94],
+    [-depth*.10,height],
+    [ depth*.10,height],
+    [ depth*.15,height*.94],
+    [ depth*.20,height*.80],
+    [ depth*.24,height*.47],
+    [ depth*.37,height*.18],
+    [ depth*.50,height*.13],
+    [ depth*.50,0]
+  ];
+
+  const positions=[];
+  const uvs=[];
+  const indices=[];
+  const half=width*.5;
+  const n=yz.length;
+
+  for(const x of [-half,half]){
+    for(let i=0;i<n;i++){
+      const z=yz[i][0];
+      const y=yz[i][1];
+      positions.push(x,y,z);
+      uvs.push((x+half)/width,y/height);
+    }
+  }
+
+  for(let i=0;i<n-1;i++){
+    const a=i;
+    const b=i+1;
+    const c=n+i+1;
+    const d=n+i;
+    indices.push(a,b,c,a,c,d);
+  }
+
+  for(const side of [0,1]){
+    const base=side*n;
+    for(let i=1;i<n-1;i++){
+      if(side===0){
+        indices.push(base,base+i+1,base+i);
+      }else{
+        indices.push(base,base+i,base+i+1);
+      }
+    }
+  }
+
+  const geometry=new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(positions,3)
+  );
+  geometry.setAttribute(
+    "uv",
+    new THREE.Float32BufferAttribute(uvs,2)
+  );
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+
+  return geometry;
+}
+
+export function createProceduralBarricadeSource({
+  THREE,
+  material
+}={}){
+  if(!THREE || !material) return null;
+
+  const W=2.375169;
+  const H=1.046030;
+  const D=.718762;
+
+  const root=new THREE.Group();
+  root.name="procedural_barricade_source";
+
+  const mesh=new THREE.Mesh(
+    createConcreteJerseyBarrierGeometry(
+      THREE,
+      W,
+      H,
+      D
+    ),
+    material
+  );
+
+  mesh.name="realistic_concrete_jersey_barrier";
+  mesh.castShadow=false;
+  mesh.receiveShadow=true;
+  mesh.frustumCulled=true;
+
+  root.add(mesh);
+  root.updateMatrixWorld(true);
+
+  return root;
+}
+
+export function buildInfiniteBarricadeExtensions({
+  THREE,
+  scene,
+  source,
+  maxPerfRootLocalBounds,
+  maxPerfBuildInstancedGLB,
+  U_X,
+  U_BACK_Z
+}={}){
+  if(
+    !THREE ||
+    !scene ||
+    !source ||
+    !maxPerfRootLocalBounds ||
+    !maxPerfBuildInstancedGLB
+  ){
+    return null;
+  }
+
+  const old=scene.getObjectByName("real_100m_barricades");
+  if(old) scene.remove(old);
+
+  const matrices=[];
+  const length=100;
+  const spacing=2.70;
+  const targetHeight=4.422;
+
+  const sourceBox=maxPerfRootLocalBounds(source);
+  const sourceSize=sourceBox.getSize(
+    new THREE.Vector3()
+  );
+
+  if(
+    sourceSize.x<=0 ||
+    sourceSize.y<=0 ||
+    sourceSize.z<=0
+  ){
+    return null;
+  }
+
+  const scale=new THREE.Vector3(
+    3.0/sourceSize.x,
+    targetHeight/sourceSize.y,
+    1.38/sourceSize.z
+  );
+
+  const q=new THREE.Quaternion().setFromEuler(
+    new THREE.Euler(0,Math.PI/2,0)
+  );
+
+  for(const cfg of [
+    {x:-U_X-25.20},
+    {x: U_X+25.20}
+  ]){
+    for(let d=spacing*.5;d<length;d+=spacing){
+      const pos=new THREE.Vector3(
+        cfg.x,
+        .055,
+        U_BACK_Z-d
+      );
+
+      matrices.push(
+        new THREE.Matrix4().compose(
+          pos,
+          q,
+          scale
+        )
+      );
+    }
+  }
+
+  const group=maxPerfBuildInstancedGLB(
+    source,
+    matrices,
+    "real_100m_barricades"
+  );
+
+  scene.add(group);
+  return group;
+}

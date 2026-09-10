@@ -1,0 +1,76 @@
+<div id="adTurnWalkRows"></div>
+<div id="receptionExchangePanel">
+<div id="receptionExchangeTitle">CASH EXCHANGE</div>
+<div id="receptionExchangeText">Choose how many dollars you want to exchange into cents.</div>
+<div id="receptionExchangeChoices">
+<button class="rexBtn rexChoice selected" data-rex="1">$1 → 100¢</button>
+<button class="rexBtn rexChoice" data-rex="2">$2 → 200¢</button>
+<button class="rexBtn rexChoice" data-rex="5">$5 → 500¢</button>
+<button class="rexBtn rexChoice" data-rex="10">$10 → 1000¢</button>
+</div>
+<div id="receptionExchangeActions">
+<button class="rexBtn" id="receptionExchangeClose">CANCEL</button>
+<button class="rexBtn rexContinue" id="receptionExchangeContinue">CONTINUE</button>
+</div>
+</div>
+<div id="gameStartScreen">
+<div id="gameStartCard">
+<div id="startEyebrow">CASINO DISTRICT · NIGHT INVESTIGATION</div>
+<div id="startTitle">CHOOSE YOUR RUN</div>
+<div id="startSubtitle">Choose difficulty, character style and review your starting settings.</div>
+<div class="startSectionLabel">DIFFICULTY</div>
+<div id="startDifficulty">
+<button class="startDiff selected" data-start-difficulty="easy">
+<strong>EASY</strong>
+<span>Current task + pulsing map destination.</span>
+<button class="startDiff" data-start-difficulty="intermediate">
+<strong>INTERMEDIATE</strong>
+<span>Current task only. No destination marker.</span>
+<button class="startDiff" data-start-difficulty="hard">
+<strong>HARD</strong>
+<span>No task banner and no map assistance.</span>
+</button></button></button></div>
+<div id="startLower">
+<div id="startCharacterCard">
+<div class="startSectionLabel">CHARACTER</div>
+<div id="startAvatarStage">
+<canvas aria-label="Player GLB preview" id="startCharacterCanvas">
+</canvas>
+<div id="startCharacterLoading">LOADING CHARACTER PREVIEW…</div>
+</div>
+<select id="startOutfit">
+<option value="original">Original Outfit</option>
+<option value="forest">Forest Green Hoodie · Blue Jeans</option>
+<option value="burgundy">Burgundy Hoodie · Charcoal Jeans</option>
+<option value="mono">White &amp; Black Hoodie · Black Jeans</option>
+</select>
+</div>
+<div id="startSettingsCard">
+<div class="startSectionLabel">START OPTIONS</div>
+<div id="startSettingsGrid">
+<div class="startSettingBox">
+<b>DIFFICULTY</b>
+<span id="startDifficultyRead">Easy</span>
+</div>
+<div class="startSettingBox">
+<b>OUTFIT</b>
+<span id="startOutfitRead">Original Outfit</span>
+</div>
+</div>
+<button id="startPlay">PLAY</button>
+</div>
+</div>
+</div>
+</div>
+<div class="hidden" id="loadingScreen">
+<div id="loadingBox">
+<div id="loadingEyebrow"></div>
+<div id="loadingTitle">LOADING...</div>
+<div id="loadingPercent">0%</div>
+<div id="loadingBarOuter">
+<div id="loadingBar">
+</div>
+</div>
+<div id="loadingText">Loading assets</div>
+</div>
+</div>

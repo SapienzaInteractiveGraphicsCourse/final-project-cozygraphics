@@ -252,3 +252,192 @@ export function createMoon({THREE,scene}={}){
   scene.add(moonGroup);
   return moonGroup;
 }
+
+
+export function buildWorldGrassFloor({
+  scene,
+  grassMaterial,
+  grassTexture,
+  previousMesh=null,
+  width=760,
+  depth=3400,
+  position=[0,-.24,-750],
+  color=0x77767B
+}={}){
+  if(!scene || !grassMaterial || !grassTexture) return null;
+
+  if(previousMesh?.parent){
+    previousMesh.parent.remove(previousMesh);
+  }
+
+  const geometry=new THREE.PlaneGeometry(width,depth);
+  const material=grassMaterial.clone();
+
+  material.map=grassTexture;
+  material.color.setHex(color);
+  material.fog=false;
+  material.toneMapped=false;
+  material.needsUpdate=true;
+
+  const mesh=new THREE.Mesh(geometry,material);
+  mesh.name="world_grass_png_floor";
+  mesh.rotation.x=-Math.PI/2;
+  mesh.position.set(...position);
+  mesh.renderOrder=-30;
+  mesh.receiveShadow=false;
+  mesh.castShadow=false;
+
+  scene.add(mesh);
+  return mesh;
+}
+
+export function makeContinuousCurveWallSegment({
+  scene,
+  name,
+  curve,
+  offset,
+  width,
+  height,
+  tStart,
+  tEnd,
+  segments=420,
+  color=0x777b82,
+  roughness=.88
+}={}){
+  if(!scene || !curve) return null;
+
+  const positions=[];
+  const indices=[];
+  const half=width*.5;
+
+  for(let i=0;i<=segments;i++){
+    const t=THREE.MathUtils.lerp(
+      tStart,
+      tEnd,
+      i/segments
+    );
+
+    const p=curve.getPoint(t);
+    const tangent=curve.getTangent(t).normalize();
+
+    const nx=-tangent.z;
+    const nz=tangent.x;
+
+    const innerX=p.x+nx*(offset-half);
+    const innerZ=p.z+nz*(offset-half);
+    const outerX=p.x+nx*(offset+half);
+    const outerZ=p.z+nz*(offset+half);
+
+    positions.push(
+      innerX,.055,innerZ,
+      outerX,.055,outerZ,
+      innerX,height+.055,innerZ,
+      outerX,height+.055,outerZ
+    );
+
+    if(i<segments){
+      const a=i*4;
+      const b=a+1;
+      const c=a+2;
+      const d=a+3;
+
+      const na=a+4;
+      const nb=b+4;
+      const nc=c+4;
+      const nd=d+4;
+
+      indices.push(
+        c,nc,d,
+        nc,nd,d,
+        a,b,na,
+        na,b,nb,
+        a,na,c,
+        na,nc,c,
+        b,d,nb,
+        nb,d,nd
+      );
+    }
+  }
+
+  const geometry=new THREE.BufferGeometry();
+  geometry.setAttribute(
+    "position",
+    new THREE.Float32BufferAttribute(positions,3)
+  );
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+
+  const material=new THREE.MeshStandardMaterial({
+    color,
+    roughness
+  });
+
+  const mesh=new THREE.Mesh(geometry,material);
+  mesh.name=name;
+  mesh.castShadow=false;
+  mesh.receiveShadow=true;
+
+  scene.add(mesh);
+  return mesh;
+}
+
+
+export function buildUnexploredMirageBoundary({
+  scene,
+  renderer,
+  state,
+  roadBuildRoadExtensions
+}={}){
+  if(
+    !scene ||
+    !renderer ||
+    !state ||
+    !roadBuildRoadExtensions
+  ){
+    return null;
+  }
+
+  state.approachGroup.clear();
+
+  const roadExtension=roadBuildRoadExtensions();
+  state.limitZ=roadExtension.limitZ;
+
+  if(roadExtension.group){
+    scene.remove(roadExtension.group);
+    state.approachGroup.add(roadExtension.group);
+  }
+
+  renderer.clippingPlanes=[];
+  renderer.localClippingEnabled=false;
+
+  return roadExtension;
+}
+
+export function updateUnexploredMirageBoundary({
+  player,
+  activeWorldZone,
+  state,
+  previousPosition,
+  showMessage
+}={}){
+  if(
+    !player?.root ||
+    activeWorldZone!=="outside" ||
+    !state
+  ){
+    return;
+  }
+
+  const distance=
+    player.root.position.z-
+    state.limitZ;
+
+  if(distance<state.triggerDistance){
+    showMessage?.();
+  }
+
+  if(player.root.position.z<state.limitZ){
+    player.root.position.copy(previousPosition);
+    showMessage?.();
+  }
+}

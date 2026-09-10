@@ -13,7 +13,6 @@
   };
 }
 
-
 {
   const loadingBox=document.getElementById("loadingBox");
   const loadingBarOuter=document.getElementById("loadingBarOuter");

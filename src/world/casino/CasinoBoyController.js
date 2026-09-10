@@ -286,6 +286,25 @@ function casinoBoyAnimateFingers(now,blend){
     }
   }
 }
+function casinoBoyCaptureTalkLowerBody(){
+  const b=CASINO_BOY.bones;
+  CASINO_BOY.talkLowerBodyLock={};
+  for(const key of [
+    "leftUpLeg","rightUpLeg","leftKnee","rightKnee",
+    "leftFoot","rightFoot","leftToe","rightToe"
+  ]){
+    const bone=b?.[key];
+    if(bone) CASINO_BOY.talkLowerBodyLock[key]=bone.quaternion.clone();
+  }
+}
+function casinoBoyHoldTalkLowerBody(){
+  const lock=CASINO_BOY.talkLowerBodyLock;
+  if(!lock) return;
+  for(const [key,q] of Object.entries(lock)){
+    const bone=CASINO_BOY.bones?.[key];
+    if(bone && q) bone.quaternion.copy(q);
+  }
+}
 function updateCasinoBoyProcedural(dt){
   const root=CASINO_BOY.root;
   if(!root) return;
@@ -316,6 +335,12 @@ function updateCasinoBoyProcedural(dt){
     );
   }
 
+  const wasTalking=CASINO_BOY.talking;
+  if(talking && !wasTalking){
+    casinoBoyCaptureTalkLowerBody();
+  }else if(!talking && wasTalking){
+    CASINO_BOY.talkLowerBodyLock=null;
+  }
   CASINO_BOY.talking=talking;
 
   if(!talking){
@@ -471,14 +496,7 @@ function updateCasinoBoyProcedural(dt){
       .11
     );
 
-    casinoBoySetBone(CASINO_BOY.bones.leftUpLeg,ctx.CASINO_BOY_STANDARD_POSE.leftUpLeg,.09);
-    casinoBoySetBone(CASINO_BOY.bones.rightUpLeg,ctx.CASINO_BOY_STANDARD_POSE.rightUpLeg,.09);
-    casinoBoySetBone(CASINO_BOY.bones.leftKnee,ctx.CASINO_BOY_STANDARD_POSE.leftKnee,.09);
-    casinoBoySetBone(CASINO_BOY.bones.rightKnee,ctx.CASINO_BOY_STANDARD_POSE.rightKnee,.09);
-    casinoBoySetBone(CASINO_BOY.bones.leftFoot,ctx.CASINO_BOY_STANDARD_POSE.leftFoot,.09);
-    casinoBoySetBone(CASINO_BOY.bones.rightFoot,ctx.CASINO_BOY_STANDARD_POSE.rightFoot,.09);
-    casinoBoySetBone(CASINO_BOY.bones.leftToe,ctx.CASINO_BOY_STANDARD_POSE.leftToe,.09);
-    casinoBoySetBone(CASINO_BOY.bones.rightToe,ctx.CASINO_BOY_STANDARD_POSE.rightToe,.09);
+    casinoBoyHoldTalkLowerBody();
 
     casinoBoyAnimateFingers(now,0);
 

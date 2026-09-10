@@ -2430,12 +2430,48 @@ function lcIsBlockedAt(x,z,playerY){
   });
 }
 function lcResolveMovement(previousPosition){
-  return resolvePlayerCollisionMovement({
+  if(!player?.root) return;
+  const root=player.root;
+  const desiredX=root.position.x;
+  const desiredZ=root.position.z;
+  const attemptedDx=desiredX-previousPosition.x;
+  const attemptedDz=desiredZ-previousPosition.z;
+
+  const result=resolvePlayerCollisionMovement({
     state:LIGHT_COLLISION,
     player,
     previousPosition,
     isBlockedAt:lcIsBlockedAt
   });
+
+  // If the normal solver almost cancelled a real movement, try an axis slide.
+  // This prevents the player from stuttering on NPC/wall corners.
+  const movedDx=root.position.x-previousPosition.x;
+  const movedDz=root.position.z-previousPosition.z;
+  const attemptedSq=attemptedDx*attemptedDx+attemptedDz*attemptedDz;
+  const movedSq=movedDx*movedDx+movedDz*movedDz;
+  if(attemptedSq>.000004 && movedSq<attemptedSq*.08){
+    const y=root.position.y;
+    const canX=Math.abs(attemptedDx)>.0001 &&
+      !lcIsBlockedAt(previousPosition.x+attemptedDx,previousPosition.z,y);
+    const canZ=Math.abs(attemptedDz)>.0001 &&
+      !lcIsBlockedAt(previousPosition.x,previousPosition.z+attemptedDz,y);
+
+    if(canX || canZ){
+      if(canX && canZ){
+        if(Math.abs(attemptedDx)>=Math.abs(attemptedDz)){
+          root.position.set(previousPosition.x+attemptedDx,y,previousPosition.z);
+        }else{
+          root.position.set(previousPosition.x,y,previousPosition.z+attemptedDz);
+        }
+      }else if(canX){
+        root.position.set(previousPosition.x+attemptedDx,y,previousPosition.z);
+      }else{
+        root.position.set(previousPosition.x,y,previousPosition.z+attemptedDz);
+      }
+    }
+  }
+  return result;
 }
 function lcBuildFence(){
   return buildEditableFenceCollisions({
@@ -2506,6 +2542,16 @@ function buildCharacterCollisionsAtPermanentTransforms(characters,callback){
   return result;
 }
 
+function roundSecurityCharacterCollider(){
+  for(const c of LIGHT_COLLISION.static||[]){
+    const n=String(c?.name||"").toLowerCase();
+    if(!n.includes("security")) continue;
+    if(!Number.isFinite(c.hx) || !Number.isFinite(c.hz)) continue;
+    c.type="ellipse";
+    c.majorRadius=Math.max(.28,Math.max(c.hx,c.hz)*.86);
+    c.minorRadius=Math.max(.25,Math.min(c.hx,c.hz)*.86);
+  }
+}
 function lcSyncAllCharacters(){
   const characterList=
     typeof npcs==="undefined"
@@ -2518,7 +2564,7 @@ function lcSyncAllCharacters(){
     collisionCharacters.push(EVENT_GIRL);
   }
 
-  return buildCharacterCollisionsAtPermanentTransforms(
+  const result=buildCharacterCollisionsAtPermanentTransforms(
     collisionCharacters,
     ()=>syncCharacterCollisions({
       THREE,
@@ -2531,6 +2577,8 @@ function lcSyncAllCharacters(){
       bounds:lcBounds
     })
   );
+  roundSecurityCharacterCollider();
+  return result;
 }
 function lcSyncCars(){
   return syncCarCollisions({
@@ -7027,6 +7075,7 @@ const CASINO_BOY={
   bones:{},
   rest:new Map(),
   talking:false,
+  talkLowerBodyLock:null,
 
   position:new THREE.Vector3(-29.800,0.150,-18.550),
   rotation:new THREE.Euler(
@@ -11881,7 +11930,7 @@ function updatePlayer(){
 
     const wSoloSpeedBoost=
       (forwardInput>0 && sideInput===0)
-        ? 1.18
+        ? 1.20
         : 1;
 
     if(pureTurnInPlace){
@@ -12514,6 +12563,15 @@ function updateInteraction(){
 let NPC_RELEVANCE_TICK=0;
 function shouldUpdateNPCByDistance(npc){
   if(!npc?.ready || !npc?.root) return false;
+
+  // Security and thief stay fully updated even when far away.
+  if(
+    npc.name==="securityMan" ||
+    npc.name==="toxicMan" ||
+    npc.name==="thief"
+  ){
+    return true;
+  }
   if(
     npc.state==="talk" ||
     currentTarget===npc ||
@@ -14264,6 +14322,29 @@ addEventListener("DOMContentLoaded",()=>{
   });
 });
 
+const CASINO_SLEEP_STATE={sleeping:null};
+function setCasinoRuntimeSleeping(sleeping){
+  sleeping=!!sleeping;
+  if(CASINO_SLEEP_STATE.sleeping===sleeping) return;
+  CASINO_SLEEP_STATE.sleeping=sleeping;
+  const active=!sleeping;
+
+  // Interior runtime models only. Child stays visible before entering by design.
+  const receptionist=CASINO_RECEPTIONIST_CONTROLLER?.getRoot?.();
+  if(receptionist) receptionist.visible=active;
+  if(CASINO_BOY?.root) CASINO_BOY.root.visible=active;
+  if(CASINO_CLAW?.root) CASINO_CLAW.root.visible=active;
+  if(CASINO_MEDIA_RUNTIME?.jukebox) CASINO_MEDIA_RUNTIME.jukebox.visible=active;
+  if(CASINO_MEDIA_RUNTIME?.tv) CASINO_MEDIA_RUNTIME.tv.visible=active;
+  if(CASINO_MEDIA_RUNTIME?.tv2) CASINO_MEDIA_RUNTIME.tv2.visible=active;
+  if(casinoPokerTable) casinoPokerTable.visible=active;
+  if(casinoReception) casinoReception.visible=active;
+
+  if(sleeping && JUKEBOX_AUDIO_RUNTIME?.prompt){
+    JUKEBOX_AUDIO_RUNTIME.prompt.style.display="none";
+  }
+}
+
 // Non-critical UI/proximity checks: 4 Hz is enough.
 let BACKGROUND_UI_ACCUM=0;
 const BACKGROUND_UI_STEP=.25;
@@ -14305,6 +14386,8 @@ function animate(rafNow){
   PERF_RUNTIME.editorAccumulator+=dt;
   PERF_RUNTIME.tikiAnimAccumulator+=dt;
   updatePlayer();
+  const casinoRuntimeActive=activeWorldZone==="leftRoom";
+  setCasinoRuntimeSleeping(!casinoRuntimeActive);
   if(runBackgroundUI){
     const walletPromptActive=
       collectibleTarget?.id==="wallet" ||
@@ -14318,8 +14401,10 @@ function animate(rafNow){
       if(JUKEBOX_AUDIO_RUNTIME?.prompt){
         JUKEBOX_AUDIO_RUNTIME.prompt.style.display="none";
       }
-    }else{
+    }else if(casinoRuntimeActive){
       updateJukeboxInteraction();
+    }else if(JUKEBOX_AUDIO_RUNTIME?.prompt){
+      JUKEBOX_AUDIO_RUNTIME.prompt.style.display="none";
     }
   }
   if(runBackgroundUI) updateTelescopeInteractionPrompt();
@@ -14331,7 +14416,7 @@ function animate(rafNow){
   }
   updateSlidingDoors();
   updateDoorSceneTransitions();
-  if(activeWorldZone==="leftRoom"){
+  if(casinoRuntimeActive){
     CASINO_RECEPTIONIST_CONTROLLER.update();
     CASINO_BOY_CONTROLLER.update(frameDt||0.016);
     updateCasinoClawMachine();

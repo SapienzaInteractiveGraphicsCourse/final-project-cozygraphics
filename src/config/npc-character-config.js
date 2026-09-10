@@ -478,7 +478,7 @@ export const CASINO_BOY_ANIM={
   legAmp:1.15,
 
   talkBodyTurnFactor:.22,
-  talkBodyTurnMaxDeg:12
+  talkBodyTurnMaxDeg:4
 };
 
 export const SECURITY_TALK2={

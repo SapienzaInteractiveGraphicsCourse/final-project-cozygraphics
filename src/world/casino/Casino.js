@@ -6,7 +6,7 @@ import {
   CASINO_DOOR_SEAL_CONFIG,
   CASINO_STALE_GEOMETRY_NAMES,
   CASINO_MODEL_CONFIG
-} from "../config/casino.config.js";
+} from "../../config/casino.config.js";
 
 export let CASINO_WORLD=null;
 export let CASINO_FLOOR_TEXTURE=null;

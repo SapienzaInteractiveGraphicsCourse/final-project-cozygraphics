@@ -167,7 +167,7 @@ import {
   buildOuterContinuousRoadLines as roadBuildOuterContinuousRoadLines
 } from "../world/Road.js";
 import * as RoadBuilders from "../world/Road.js";
-import * as CasinoBuilders from "../world/Casino.js";
+import * as CasinoBuilders from "../world/casino/Casino.js";
 import * as ClawMachineBuilders from "../world/ClawMachine.js";
 import {
   createGlobalLights,
@@ -258,10 +258,114 @@ import {
 } from "../systems/CollisionSystem.js?v=pass8";
 
 
+import {
+  QUEST,
+  QUEST_TASKS,
+  TASK_BOUNDARY
+} from "../quests/quest-state.js";
+
+import { GAME_SETTINGS } from "../config/game-settings.js";
+
+import {
+  PLAYER_HAND_TUNING_DEFAULTS,
+  PLAYER_TURN_TUNING_DEFAULTS,
+  AD_CURRENT_DEFAULTS,
+  PLAYER_PROCEDURAL_WALK_CONFIG,
+  PLAYER_PROCEDURAL_TURN_CONFIG,
+  AD_TURN_WALK_DEFAULTS
+} from "../player/player-animation.config.js";
+
+
+import { createPlayerAnimationSystem } from "../player/PlayerAnimation.js";
+
+import {
+  GLOBAL_DIALOGUE_LOCK,
+  formatDialogueName,
+  getDialogueHintSafe,
+  showDialogueUI,
+  hideDialogueUI
+} from "../story/DialogueSystem.js";
+
+import { createStartScreenSystem } from "../ui/runtime/StartScreen.js";
+
+import {
+  INVENTORY,
+  CLAW_PLAY_COST_CENTS,
+  PLAYER_MONEY,
+  CASINO_CLAW_PAYMENT,
+  COLLECTIBLES,
+  renderInventoryMoney,
+  canAffordCasinoClaw,
+  spendCasinoClawCost,
+  setCasinoClawPaymentMessage
+} from "../inventory/InventoryState.js";
+
+import { drawMinimapRuntime } from "../ui/runtime/MinimapRuntime.js";
+
+import { createSecurityEditors } from "../npc/security/SecurityEditors.js";
+
+import {
+  CHILD_POST_TALK_ARMS,
+  SECURITY_POST_TALK_ARMS,
+  SECURITY_GAME_START_SNAPSHOT,
+  POSES,
+  TALK_POSES,
+  THIEF_UNDISCOVERED_POSE_A,
+  THIEF_UNDISCOVERED_POSE_B,
+  THIEF_UNDISCOVERED_POSE_C,
+  THIEF_COUNTER10_POSE,
+  THIEF_TALK_POSE_A,
+  THIEF_TALK_POSE_B,
+  THIEF_TALK_POSE,
+  THIEF_POST_DIALOGUE_POSE,
+  CASINO_BOY_STANDARD_POSE,
+  CASINO_BOY_GESTURE_POSE,
+  CASINO_BOY_ANIM,
+  SECURITY_TALK2,
+  THIEF_HANDCUFF_EDITOR,
+  FINAL_SCENE_LOCKED_LAYOUT,
+  RIGHT_ROSE_GROUP_EDITOR,
+  LEFT_ROSE_GROUP_MIRROR,
+  CHILD_USER_POSE_1,
+  CHILD_USER_POSE_2,
+  CHILD_USER_POSE_FLOW,
+  CHILD_APPROVED_POSES,
+  NPC_RELEVANCE_CONFIG
+} from "../config/npc-character-config.js";
+
+import { createCasinoBoyController } from "../world/casino/CasinoBoyController.js";
+
+import { createCasinoReceptionistController } from "../world/casino/CasinoReceptionistController.js";
+
+import { JUKEBOX_AUDIO_RUNTIME, createJukeboxSystem } from "../world/casino/JukeboxSystem.js";
+
+import { RECEPTION_EXCHANGE, createReceptionExchangeUI } from "../ui/runtime/ReceptionExchangeUI.js";
+
+import { createInventoryUI } from "../ui/runtime/InventoryUI.js";
+
+import { createChildPoseSystem } from "../npc/child/ChildPoseSystem.js";
+
+/*
+ * Core bone axes.
+ * These belong to core/gameplay because claw-machine and NPC code use them too.
+ * They intentionally do NOT depend on PlayerAnimation.js.
+ */
+const CORE_BONE_AXIS_RIGHT=new THREE.Vector3(1,0,0);
+const CORE_BONE_AXIS_UP=new THREE.Vector3(0,1,0);
+const CORE_BONE_AXIS_FORWARD=new THREE.Vector3(0,0,1);
+
+function smooth01(t){
+  t=THREE.MathUtils.clamp(t,0,1);
+  return t*t*(3-2*t);
+}
+
+
+
 const __PROJECT_BASE_URL__ = new URL("../../", import.meta.url);
 
+
 function drawMinimap(){
-  renderMinimap({
+  drawMinimapRuntime(renderMinimap,{
     minimapCtx,
     minimap,
     player,
@@ -296,6 +400,7 @@ function drawMinimap(){
       typeof COASTAL_ASSETS!=="undefined"?COASTAL_ASSETS:null
   });
 }
+
 let initVehicleSystem=null;
 let updateVehicles=null;
 let VEHICLE_SYSTEM_LOADED=false;
@@ -647,29 +752,9 @@ const REFERENCE_LINE={
   length:82,
   yaw:0
 };
-const QUEST={
-  stage:"talk_police",
-  dialogueActive:false,
-  dialogueLines:[],
-  dialogueIndex:0,
-  dialogueSpeaker:"POLICE",
-  dialogueDone:null
-};
-const QUEST_TASKS={
-  talk_police:"Talk to the Police",
-  search_clues:"Investigate the Casino",
-  return_wallet:"Bring the wallet to the Police",
-  find_suspicious:"Go to the garden and investigate",
-  call_security:"Call Security with the radio",
-  arrest_in_progress:"Police arrest in progress",
-  game_complete:"MYSTERY SOLVED"
-};
-const TASK_BOUNDARY={
-  marginBeforeCorner:7.0,
-  gate:null,
-  gateReady:false,
-  lastWarning:0
-};
+
+
+
 function getTaskBoundaryMessage(){
   const task=(QUEST_TASKS[QUEST.stage] || "current task").trim();
   return `Go back · complete the current task first: ${task}`;
@@ -1518,15 +1603,7 @@ function questAdvanceDialogue(){
 }
 
 
-const CHILD_POST_TALK_ARMS={
-  active:false,
-  startTime:0,
-  duration:1900,
-  child:null,
-  bones:null,
-  rest:new Map(),
-  variant:0
-};
+
 
 function startChildPostTalkArms(child){
   if(!child?.root) return;
@@ -1604,15 +1681,7 @@ function updateChildPostTalkArms(){
   }
 }
 
-const SECURITY_POST_TALK_ARMS={
-  active:false,
-  startTime:0,
-  duration:2200,
-  security:null,
-  bones:null,
-  rest:new Map(),
-  variant:0
-};
+
 
 function startSecurityPostTalkArms(security){
   if(!security?.root) return;
@@ -1785,116 +1854,28 @@ function questTalkToPolice(){
 }
 questSetStage("talk_police");
 let loadingDisplayedPct=0;
-const START_GATE={accepted:false};
-const START_PLAYER_PREVIEW={
-  renderer:null,
-  scene:null,
-  camera:null,
-  root:null,
-  mixer:null,
-  raf:0,
-  clock:new THREE.Clock(),
-  loaded:false
-};
-function collectGLBStrings(value,out=new Set(),depth=0){
-  if(depth>5 || value==null) return out;
-  if(typeof value==="string"){
-    if(/\.glb(?:$|\?)/i.test(value)) out.add(value);
-    return out;
-  }
-  if(Array.isArray(value)){
-    for(const v of value) collectGLBStrings(v,out,depth+1);
-    return out;
-  }
-  if(typeof value==="object"){
-    for(const v of Object.values(value)){
-      collectGLBStrings(v,out,depth+1);
-    }
-  }
-  return out;
-}
-function disposeStartPlayerPreview(){
-  if(START_PLAYER_PREVIEW.raf){
-    cancelAnimationFrame(START_PLAYER_PREVIEW.raf);
-    START_PLAYER_PREVIEW.raf=0;
-  }
-  START_PLAYER_PREVIEW.mixer?.stopAllAction?.();
-}
 
-function refreshStartSummary(){
-  const difficulty=String(GAME_SETTINGS?.difficulty||"easy");
-  const dRead=document.getElementById("startDifficultyRead");
-  if(dRead){
-    dRead.textContent=
-      difficulty==="intermediate"
-        ?"Intermediate"
-        :difficulty==="hard"
-          ?"Hard"
-          :"Easy";
-  }
-  const outfit=document.getElementById("startOutfit");
-  const outfitRead=document.getElementById("startOutfitRead");
-  if(outfitRead && outfit){
-    outfitRead.textContent=
-      outfit.selectedOptions?.[0]?.textContent ||
-      "Original Outfit";
-  }
-}
-function initGameStartScreen(){
-  if(initGameStartScreen.done) return;
-  initGameStartScreen.done=true;
-  document.body.classList.remove("game-ready");
-  document.body.classList.add("start-menu-active");
-  loadingScreen?.classList.add("hidden");
-  document.querySelectorAll("[data-start-difficulty]").forEach(btn=>{
-    btn.onclick=()=>{
-      document
-        .querySelectorAll("[data-start-difficulty]")
-        .forEach(x=>x.classList.remove("selected"));
-      btn.classList.add("selected");
-      const value=btn.dataset.startDifficulty||"easy";
-      GAME_SETTINGS.difficulty=value;
-      if(setDifficulty) setDifficulty.value=value;
-      applyDifficultyGuidance();
-      refreshStartSummary();
-    };
-  });
-  const outfit=document.getElementById("startOutfit");
-  outfit?.addEventListener("change",()=>{
-    GAME_SETTINGS.outfit=outfit.value;
-    if(setOutfit) setOutfit.value=outfit.value;
-    applyStartPreviewOutfit();
-    applyPlayerOutfitPreset();
-    refreshStartSummary();
-  });
-  refreshStartSummary();
-  const play=document.getElementById("startPlay");
-  if(play){
-    play.onclick=()=>{
-      if(START_GATE.accepted) return;
-      START_GATE.accepted=true;
-      disposeStartPlayerPreview();
-      document.body.classList.remove("start-menu-active");
-      document.body.classList.add("loading-active");
-      document
-        .getElementById("gameStartScreen")
-        ?.classList.add("hidden");
-      loadingScreen?.classList.remove("hidden");
-      setLoadingProgress(0,"Loading assets");
-      if(moduleInitializationComplete){
-        finishSceneLoading();
-      }
-    };
-  }
-}
-const GAME_SETTINGS={
-  cameraZoom:1.0,
-  cameraHeightOffset:0,
-  cameraLookOffset:0,
-  cameraFov:60,
-  outfit:"original",
-  difficulty:"easy"
-};
+
+const {
+  START_GATE,
+  START_PLAYER_PREVIEW,
+  collectGLBStrings,
+  disposeStartPlayerPreview,
+  refreshStartSummary,
+  initGameStartScreen
+}=createStartScreenSystem({
+  THREE,
+  GAME_SETTINGS,
+  getLoadingScreen:()=>loadingScreen,
+  getSetDifficulty:()=>setDifficulty,
+  applyDifficultyGuidance:()=>applyDifficultyGuidance(),
+  applyStartPreviewOutfit:()=>applyStartPreviewOutfit(),
+  applyPlayerOutfitPreset:()=>applyPlayerOutfitPreset(),
+  setLoadingProgress:(...args)=>setLoadingProgress(...args),
+  isModuleInitializationComplete:()=>moduleInitializationComplete,
+  finishSceneLoading:()=>finishSceneLoading()
+});
+
 const settingsToggle=document.getElementById("settingsToggle");
 const settingsPanel=document.getElementById("settingsPanel");
 const setCamZoom=document.getElementById("setCamZoom");
@@ -3710,48 +3691,22 @@ window.addEventListener("keydown",ev=>{
 
 
 const keys={};
-const INVENTORY={
-  open:false,
-  items:[]
-};
 
-const CLAW_PLAY_COST_CENTS=50;
-const PLAYER_MONEY={
-  cashDollars:150,
-  coinCents:200
-};
 
-const CASINO_CLAW_PAYMENT={
-  message:"",
-  messageUntil:0
-};
 
-function renderInventoryMoney(){
-  const cash=document.getElementById("inventoryCashValue");
-  const coins=document.getElementById("inventoryCoinValue");
-  if(cash) cash.textContent="$"+Math.max(0,Math.floor(PLAYER_MONEY.cashDollars));
-  if(coins) coins.textContent=Math.max(0,Math.floor(PLAYER_MONEY.coinCents))+"¢";
-}
 
-function canAffordCasinoClaw(){
-  return PLAYER_MONEY.coinCents>=CLAW_PLAY_COST_CENTS;
-}
 
-function spendCasinoClawCost(){
-  if(!canAffordCasinoClaw()) return false;
-  PLAYER_MONEY.coinCents-=CLAW_PLAY_COST_CENTS;
-  renderInventoryMoney();
-  return true;
-}
 
-function setCasinoClawPaymentMessage(message,duration=1500){
-  CASINO_CLAW_PAYMENT.message=String(message||"");
-  CASINO_CLAW_PAYMENT.messageUntil=performance.now()+duration;
-}
 
-const COLLECTIBLES={
-  wallet:null
-};
+
+
+
+
+
+
+
+
+
 let lastE=false;
 let collectibleTarget=null;
 let currentTarget=null;
@@ -3848,206 +3803,26 @@ const PERF_RUNTIME={
   visibilityStep:.25,
   lightRefreshStep:2.0
 };
-function makeInventoryThumb(kind){
-  const c=document.createElement('canvas');
-  c.width=300;
-  c.height=190;
-  const ctx=c.getContext('2d');
-  const g=ctx.createLinearGradient(0,0,300,190);
-  g.addColorStop(0,'#111827');
-  g.addColorStop(1,'#070b12');
-  ctx.fillStyle=g;
-  ctx.fillRect(0,0,300,190);
-  const rr=(x,y,w,h,r)=>{
-    ctx.beginPath();
-    ctx.roundRect(x,y,w,h,r);
-  };
-  if(kind==='wallet'){
-    ctx.save();
-    ctx.translate(150,95);
-    ctx.rotate(-.10);
-    ctx.fillStyle='rgba(0,0,0,.34)';
-    rr(-78,-43,166,98,13);
-    ctx.fill();
-    const leather=ctx.createLinearGradient(-80,-50,85,50);
-    leather.addColorStop(0,'#81502f');
-    leather.addColorStop(.48,'#603722');
-    leather.addColorStop(1,'#3c2017');
-    ctx.fillStyle=leather;
-    rr(-84,-51,168,102,13);
-    ctx.fill();
-    ctx.strokeStyle='#c58d5d';
-    ctx.lineWidth=3;
-    ctx.setLineDash([6,5]);
-    rr(-75,-42,150,84,10);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.strokeStyle='rgba(25,12,8,.55)';
-    ctx.lineWidth=4;
-    ctx.beginPath();
-    ctx.moveTo(0,-48);
-    ctx.lineTo(0,48);
-    ctx.stroke();
-    ctx.fillStyle='#ded8c7';
-    rr(18,-30,50,42,5);
-    ctx.fill();
-    ctx.fillStyle='#9fadb9';
-    ctx.fillRect(25,-22,16,18);
-    ctx.fillStyle='#4a4d52';
-    ctx.fillRect(45,-22,16,4);
-    ctx.fillRect(45,-14,14,3);
-    ctx.fillStyle='#c49a61';
-    rr(55,22,25,17,4);
-    ctx.fill();
-    ctx.restore();
-  }else if(kind==='radio'){
-    ctx.save();
-    ctx.translate(150,99);
-    ctx.rotate(-.055);
 
 
-    ctx.fillStyle='rgba(0,0,0,.42)';
-    rr(-53,-59,116,135,18);
-    ctx.fill();
 
 
-    ctx.strokeStyle='#111820';
-    ctx.lineWidth=12;
-    ctx.lineCap='round';
-    ctx.beginPath();
-    ctx.moveTo(-31,-58);
-    ctx.lineTo(-22,-105);
-    ctx.stroke();
 
-    ctx.strokeStyle='#39444e';
-    ctx.lineWidth=5;
-    ctx.beginPath();
-    ctx.moveTo(-22,-105);
-    ctx.lineTo(-19,-121);
-    ctx.stroke();
-
-
-    const body=ctx.createLinearGradient(-50,-60,55,72);
-    body.addColorStop(0,'#36414b');
-    body.addColorStop(.48,'#202830');
-    body.addColorStop(1,'#11171d');
-    ctx.fillStyle=body;
-    rr(-58,-67,116,140,16);
-    ctx.fill();
-
-    ctx.strokeStyle='#59646d';
-    ctx.lineWidth=3;
-    rr(-55,-64,110,134,14);
-    ctx.stroke();
-
-
-    ctx.fillStyle='#0b1015';
-    rr(5,-76,22,14,5);
-    ctx.fill();
-    rr(33,-74,16,12,4);
-    ctx.fill();
-
-
-    ctx.fillStyle='#071218';
-    rr(-37,-48,74,29,5);
-    ctx.fill();
-    ctx.fillStyle='#7fd5af';
-    ctx.globalAlpha=.88;
-    ctx.fillRect(-28,-40,35,5);
-    ctx.fillRect(-28,-31,20,4);
-    ctx.fillRect(18,-40,10,13);
-    ctx.globalAlpha=1;
-
-
-    ctx.fillStyle='#0b1116';
-    rr(-38,-9,76,47,6);
-    ctx.fill();
-    ctx.strokeStyle='#48535c';
-    ctx.lineWidth=2;
-    for(let y=-1;y<=29;y+=7){
-      ctx.beginPath();
-      ctx.moveTo(-29,y);
-      ctx.lineTo(29,y);
-      ctx.stroke();
-    }
-
-
-    ctx.fillStyle='#151d24';
-    rr(-65,-24,9,39,4);
-    ctx.fill();
-
-    ctx.fillStyle='#b94a43';
-    rr(-21,48,42,11,4);
-    ctx.fill();
-
-
-    ctx.fillStyle='#dbe7ef';
-    ctx.globalAlpha=.72;
-    ctx.font='bold 8px Arial';
-    ctx.textAlign='center';
-    ctx.fillText('POLICE',0,68);
-    ctx.globalAlpha=1;
-
-    ctx.restore();
-  }else{
-    ctx.save();
-    ctx.translate(150,95);
-    ctx.fillStyle='#e8dfc8';
-    rr(-68,-42,136,84,8);
-    ctx.fill();
-    ctx.strokeStyle='#8b7c63';
-    ctx.lineWidth=2;
-    rr(-68,-42,136,84,8);
-    ctx.stroke();
-    ctx.fillStyle='#332f29';
-    ctx.font='bold 24px Georgia';
-    ctx.fillText('CLUE',-38,-5);
-    ctx.restore();
-  }
-  return c;
-}
-function renderInventory(){
-  renderInventoryMoney();
-  if(!inventoryGrid) return;
-  inventoryGrid.replaceChildren();
-  if(INVENTORY.items.length===0){
-    const empty=document.createElement('div');
-    empty.className='inventoryEmpty';
-    empty.textContent='No items collected';
-    inventoryGrid.appendChild(empty);
-    return;
-  }
-  for(const item of INVENTORY.items){
-    const card=document.createElement('div');
-    card.className='inventoryItem';
-    const thumb=document.createElement('div');
-    thumb.className='inventoryThumb';
-    thumb.appendChild(makeInventoryThumb(item.kind));
-    const name=document.createElement('div');
-    name.className='inventoryName';
-    name.textContent=item.name;
-    card.appendChild(thumb);
-    card.appendChild(name);
-    inventoryGrid.appendChild(card);
-  }
-}
-function setInventoryOpen(open){
-  INVENTORY.open=!!open;
-  if(inventoryOverlay){
-    inventoryOverlay.classList.toggle('open',INVENTORY.open);
-  }
-  if(INVENTORY.open){
-    for(const k of Object.keys(keys)) keys[k]=false;
-    renderInventory();
-  }
-}
-function addInventoryItem(item){
-  if(INVENTORY.items.some(x=>x.id===item.id)) return;
-  INVENTORY.items.push(item);
-  renderInventory();
-}
-let lastInventoryX=false;
 editableTikiBar=null;
+const {
+  makeInventoryThumb,
+  renderInventory,
+  setInventoryOpen,
+  addInventoryItem,
+  updateInventoryToggle
+}=createInventoryUI({
+  INVENTORY,
+  get inventoryGrid(){ return inventoryGrid; },
+  get inventoryOverlay(){ return inventoryOverlay; },
+  renderInventoryMoney,
+  keys
+});
+
 function updateTikiVisibilityCulling(){
   if(!player?.root) return;
   const px=player.root.position.x;
@@ -4066,84 +3841,19 @@ function updateTikiVisibilityCulling(){
     obj.visible=d2<140*140;
   }
 }
-function updateInventoryToggle(){
-  const xDown=!!keys['x'];
-  if(xDown && !lastInventoryX){
-    setInventoryOpen(!INVENTORY.open);
-  }
-  lastInventoryX=xDown;
-}
 
 
-const PLAYER_HAND_TUNING_DEFAULTS=Object.freeze({
-  walkWristFlexDeg:1.85,
-  walkWristYawDeg:1.20,
-  walkWristRollDeg:.80,
-  walkShoulderCounter:.045,
-  walkForeTwist:.085,
-  walkWristSwing:.115,
-  walkWristRollRaw:.055,
-  walkExtraFlex:.026,
-  walkExtraTwist:.018,
-  walkFingerCurl:0.28,
 
-  turnWristFlexDeg:1.65,
-  turnWristYawDeg:1.15,
-  turnWristRollDeg:.78,
-  turnForeYawDeg:.36,
-  turnArmFollowDeg:.50,
-  turnShoulderFollowDeg:.10,
-  turnHandFollowFlex:.026,
-  turnHandFollowTwist:.018,
-  turnFingerCurl:0.0,
-  comboFingerCurl:0.0,
-  comboFingerCurlLeft:0.0,
-  comboFingerCurlRight:0.0,
-  walkFingerCurlLeft:1.0,
-  walkFingerCurlRight:1.0,
-  turnFingerCurlLeft:0.0,
-  turnFingerCurlRight:0.0
-});
+
 const PLAYER_HAND_TUNING =
   window.PLAYER_HAND_TUNING ||
   (window.PLAYER_HAND_TUNING={...PLAYER_HAND_TUNING_DEFAULTS});
 
-const PLAYER_TURN_TUNING_DEFAULTS=Object.freeze({
-  soloTurnSpeedDeg:72,
-  soloTurnAheadDeg:66,
-  soloSnapThresholdDeg:0.25,
-  pivotOffset:0.105,
-  pivotMaxYawDeg:143,
-  pivotForwardStep:0.042,
-  pivotBodyComp:0.012,
-  soloMixerScale:0.72,
-  handoffSpeed:14.1,
-  handoffFrameMin:0.108,
-  handoffFrameMax:0.45,
-  handoffLerpBase:0.47,
-  handoffLerpExtra:0.64,
-  comboDelayMs:65,
-  releaseMaxMs:30,
-  releaseArcPhase:0.26,
-  releaseMinPhase:0.05,
-  forwardSteerAheadDeg:46,
-  forwardSnapThresholdDeg:.42,
-  forwardTurnLerpMin:.013,
-  forwardTurnLerpMax:.041,
-  forwardFullStrengthDeg:75,
-  forwardBodyTarget:.20,
-  forwardBodyLerp:.035
-});
+
 const PLAYER_TURN_TUNING={...PLAYER_TURN_TUNING_DEFAULTS};
 
-const AD_CURRENT_DEFAULTS=Object.freeze({
-  targetScale:.82,rootLerpMin:.032,rootLerpMax:.066,snapDeg:.35,
-  fullStrengthDeg:90,bodyResponseLerp:.048,pivotMotion:.26,
-  walkCycleScale:.82,legMotionScale:1,footMotionScale:1,
-  bodyWalkScale:1,baseArmAnimationScale:1,turnArmOverlayScale:.22
-});
+
 const AD_CURRENT={...AD_CURRENT_DEFAULTS};
-let AD_CURRENT_FRAME_ACTIVE=false;
 
 
 
@@ -5356,15 +5066,7 @@ function updateSlidingDoors(){
 }
 let SECURITY_POST_CASE_HOME_LOCK=false;
 
-const SECURITY_GAME_START_SNAPSHOT={
-  captured:false,
-  position:null,
-  rotation:null,
-  scale:null,
-  modelPosition:null,
-  modelRotation:null,
-  bones:new Map()
-};
+
 
 const SECURITY_INITIAL_VISIBLE_POSE={
   captured:false,
@@ -5990,44 +5692,30 @@ function smoothBoneTo(bone,x,y,z,lerp=0.28){
   bone.rotation.y=THREE.MathUtils.lerp(bone.rotation.y,y,lerp);
   bone.rotation.z=THREE.MathUtils.lerp(bone.rotation.z,z,lerp);
 }
-function formatDialogueName(name){
-  if(!name) return "UNKNOWN";
-  return String(name)
-    .replace(/([a-z])([A-Z])/g,"$1 $2")
-    .replace(/_/g," ")
-    .toUpperCase();
-}
-const GLOBAL_DIALOGUE_LOCK={
-  active:false,
-  npc:null
-};
-function getDialogueHintSafe(){
-  return document.getElementById("dialogueHint") || null;
-}
+
+
+
+
+
+
 
 function showDialogue(text){
-  dialogue.classList.remove("warningMode");
-  const speaker=GLOBAL_DIALOGUE_LOCK.npc?.name || currentTarget?.name || "NPC";
-  if(dialogueName) dialogueName.textContent=formatDialogueName(speaker);
-  if(dialogueBody) dialogueBody.textContent=text;
-  {
-    const dialogueHint=getDialogueHintSafe();
-    if(dialogueHint){
-      dialogueHint.textContent="PRESS E · END CONVERSATION";
-      dialogueHint.style.display="block";
-    }
-  }
-  dialogue.style.display="block";
+  return showDialogueUI({
+    dialogue,
+    dialogueName,
+    dialogueBody,
+    currentTarget,
+    text
+  });
 }
+
 function hideDialogue(){
-  dialogue.classList.remove("warningMode");
-  dialogue.style.display="none";
-  if(dialogueBody) dialogueBody.textContent="";
-  {
-    const dialogueHint=getDialogueHintSafe();
-    if(dialogueHint) dialogueHint.style.display="none";
-  }
+  return hideDialogueUI({
+    dialogue,
+    dialogueBody
+  });
 }
+
 function beginGenericNPCConversation(npc){
   if(!npc || GLOBAL_DIALOGUE_LOCK.active || QUEST.dialogueActive) return;
 
@@ -6390,154 +6078,11 @@ const npcs = NPC_ORDER
   .filter((key)=>key!=="boyListeningMusic")
   .map((key)=>createCharacter(CHARACTER_CONFIGS[key]));
 globalThis.npcs=npcs;
-const POSES={
-  player:{
-    armX:.83,
-    foreArmX:.14
-  },
-  securityMan:{
-    armX:1.05,
-    foreArmX:.10
-  },
-  boyListeningMusic:{
-    armX:1.05,
-    foreArmX:.10
-  },
-  toxicMan:{
-    armX:1.05,
-    foreArmX:.10
-  },
-  child:{
-    armX:1.10,
-    foreArmX:.10,
-    leftArmRestX:1.0795,
-    leftArmRestZ:-0.0015,
-    rightArmRestX:1.1295,
-    rightArmRestZ:0.0246,
-    leftArmTalkX:0.9295,
-    leftArmTalkZ:0.7485,
-    rightArmTalkX:1.1295,
-    rightArmTalkZ:0.2246,
-    leftForeArmTalkX:0.1936,
-    rightForeArmTalkX:-0.1583,
-    rightHandTalkX:0.0379,
-    rightHandTalkY:0.3435
-  }
-};
+
 function getPose(c){
   return POSES[c.name] || POSES.player;
 }
-const TALK_POSES={
-  child:{
-    energy:1.0,
-    useLeft:true,
-    useRight:true,
-    leftArm:{
-      restX:0.90,
-      restZ:0.0246,
-      talkX:0.84,
-      talkZ:0.1685
-    },
-    rightArm:{
-      restX:0.95,
-      restZ:0.0246,
-      talkX:0.84,
-      talkZ:-0.55
-    },
-    leftForeArmX:0.1936,
-    rightForeArmX:0.05
-  },
-  securityMan:{
-    energy:0.72,
-    useLeft:true,
-    useRight:true,
-    leftArm:{
-      restX:1.07,
-      restY:0.00,
-      restZ:0.03,
-      talkX:0.84,
-      talkY:0.00,
-      talkZ:0.15,
-      moveX:0.026,
-      moveY:0.000,
-      moveZ:0.032
-    },
-    leftForeArm:{
-      restX:0.17,
-      restY:0.00,
-      restZ:0.025,
-      talkX:0.46,
-      talkY:0.00,
-      talkZ:0.25,
-      moveX:0.050,
-      moveY:0.000,
-      moveZ:0.038
-    },
-    leftHand:{
-      restX:0.00,
-      restY:0.00,
-      restZ:0.00,
-      talkX:0.015,
-      talkY:0.010,
-      talkZ:0.015,
-      moveX:0.006,
-      moveY:0.006,
-      moveZ:0.008
-    },
-    rightArm:{
-      restX:1.03,
-      restY:0.00,
-      restZ:-0.03,
-      talkX:0.92,
-      talkY:0.00,
-      talkZ:-0.24,
-      moveX:0.030,
-      moveY:0.000,
-      moveZ:0.038
-    },
-    rightForeArm:{
-      restX:0.17,
-      restY:-0.04,
-      restZ:-0.145,
-      talkX:0.48,
-      talkY:0.00,
-      talkZ:-0.50,
-      moveX:0.058,
-      moveY:0.000,
-      moveZ:0.044
-    },
-    rightHand:{
-      restX:0.00,
-      restY:0.00,
-      restZ:0.00,
-      talkX:0.015,
-      talkY:-0.010,
-      talkZ:-0.015,
-      moveX:0.006,
-      moveY:0.006,
-      moveZ:0.008
-    }
-  },
-  boyListeningMusic:{
-    energy:0.15,
-    useLeft:true,
-    useRight:true,
-    leftArm:{
-      restX:0.88,
-      restZ:0,
-      talkX:0.84,
-      talkZ:0.20
-    },
-    rightArm:{
-      restX:0.88,
-      restZ:0,
-      talkX:0.84,
-      talkZ:0.20
-    },
-    leftForeArmX:0.32,
-    rightForeArmX:0.35
-  }
-};
+
 const TOXIC_MAN_STATIC_CONFIG={
   enabled:true,
   targetLimb:"all",
@@ -6576,232 +6121,19 @@ setTimeout(()=>{
 
 },0);
 
-const THIEF_UNDISCOVERED_POSE_A={
-  head:{x:-0.03,y:-0.43,z:0},
-  neck:{x:0.10,y:0,z:0},
-  leftShoulder:{x:0.06,y:0,z:0},
-  rightShoulder:{x:0,y:0,z:0},
-  leftArm:{x:0.91,y:-0.16,z:-0.09},
-  rightArm:{x:0.91,y:-0.02,z:-0.09},
-  leftForeArm:{x:0.14,y:0.03,z:0.06},
-  rightForeArm:{x:0.14,y:-0.03,z:-0.06},
-  leftHand:{x:0,y:0,z:0},
-  rightHand:{x:0,y:0,z:0},
-  hips:{x:0,y:0,z:0},
-  spine:{x:0,y:0,z:0},
-  spine1:{x:0,y:0,z:0},
-  spine2:{x:0,y:0,z:0},
-  leftUpLeg:{x:-0.05,y:0.08,z:0.10},
-  rightUpLeg:{x:0,y:0,z:0},
-  leftKnee:{x:0.01,y:0,z:0},
-  rightKnee:{x:0,y:0,z:0},
-  leftFoot:{x:0,y:0,z:0},
-  rightFoot:{x:0,y:0,z:0},
-  leftToe:{x:0,y:0,z:0},
-  rightToe:{x:0,y:0,z:0},
-  leftFingerCurl:0.14,
-  rightFingerCurl:0.14,
-  fingerCurl:0.14
-};
 
-const THIEF_UNDISCOVERED_POSE_B={
-  head:{x:-0.03,y:0.12,z:0},
-  neck:{x:0.10,y:0,z:0},
-  leftShoulder:{x:0.06,y:0,z:0},
-  rightShoulder:{x:0,y:0,z:0},
-  leftArm:{x:0.91,y:-0.66,z:-0.19},
-  rightArm:{x:0.91,y:-0.02,z:-0.09},
-  leftForeArm:{x:0.14,y:0.03,z:0.06},
-  rightForeArm:{x:0.14,y:-0.03,z:-0.06},
-  leftHand:{x:0,y:0,z:0},
-  rightHand:{x:0,y:0,z:0},
-  hips:{x:0,y:0,z:0},
-  spine:{x:0,y:0,z:0},
-  spine1:{x:0,y:0,z:0},
-  spine2:{x:0,y:0,z:0},
-  leftUpLeg:{x:-0.05,y:0.08,z:0.10},
-  rightUpLeg:{x:0,y:0,z:0},
-  leftKnee:{x:0.01,y:0,z:0},
-  rightKnee:{x:0,y:0,z:0},
-  leftFoot:{x:0,y:0,z:0},
-  rightFoot:{x:0,y:0,z:0},
-  leftToe:{x:0,y:0,z:0},
-  rightToe:{x:0,y:0,z:0},
-  leftFingerCurl:0.14,
-  rightFingerCurl:0.14,
-  fingerCurl:0.20
-};
 
-const THIEF_UNDISCOVERED_POSE_C={
-  head:{x:-0.03,y:-0.43,z:0},
-  neck:{x:0.10,y:0,z:0},
-  leftShoulder:{x:0.06,y:0,z:0},
-  rightShoulder:{x:0,y:0,z:0},
-  leftArm:{x:0.91,y:-0.16,z:-0.09},
-  rightArm:{x:0.91,y:-0.02,z:-0.09},
-  leftForeArm:{x:0.14,y:0.03,z:0.06},
-  rightForeArm:{x:0.14,y:-0.03,z:-0.06},
-  leftHand:{x:0,y:0,z:0},
-  rightHand:{x:0,y:0,z:0},
-  hips:{x:0,y:0,z:0},
-  spine:{x:0,y:0,z:0},
-  spine1:{x:0,y:0,z:0},
-  spine2:{x:0,y:0,z:0},
-  leftUpLeg:{x:-0.05,y:0.08,z:0.10},
-  rightUpLeg:{x:0,y:0,z:0},
-  leftKnee:{x:0.01,y:0,z:0},
-  rightKnee:{x:0,y:0,z:0},
-  leftFoot:{x:0,y:0,z:0},
-  rightFoot:{x:0,y:0,z:0},
-  leftToe:{x:0,y:0,z:0},
-  rightToe:{x:0,y:0,z:0},
-  leftFingerCurl:0.14,
-  rightFingerCurl:0.14,
-  fingerCurl:0.14
-};
 
-const THIEF_COUNTER10_POSE={
-  head:{x:0.22,y:-0.08,z:0.02},
-  neck:{x:0.10,y:0,z:0},
 
-  leftShoulder:{x:0.06,y:0,z:0},
-  rightShoulder:{x:0,y:0,z:0},
 
-  leftArm:{x:0.91,y:-0.16,z:-0.09},
-  rightArm:{x:0.91,y:-0.02,z:-0.09},
 
-  leftForeArm:{x:0.14,y:0.03,z:0.06},
-  rightForeArm:{x:0.14,y:-0.03,z:-0.06},
 
-  leftHand:{x:0,y:0,z:0},
-  rightHand:{x:0,y:0,z:0},
 
-  hips:{x:0,y:0,z:0},
-  spine:{x:0.02,y:0,z:0},
-  spine1:{x:0.03,y:0,z:0},
-  spine2:{x:0.04,y:0,z:0},
 
-  leftUpLeg:{x:-0.05,y:0.08,z:0.10},
-  rightUpLeg:{x:0,y:0,z:0},
 
-  leftKnee:{x:0.01,y:0,z:0},
-  rightKnee:{x:0,y:0,z:0},
 
-  leftFoot:{x:0,y:0,z:0},
-  rightFoot:{x:0,y:0,z:0},
 
-  leftToe:{x:0,y:0,z:0},
-  rightToe:{x:0,y:0,z:0},
 
-  leftFingerCurl:0.14,
-  rightFingerCurl:0.14,
-  fingerCurl:0.14
-};
-const THIEF_TALK_POSE_A={
-  head:{x:.03,y:.02,z:.03},
-  neck:{x:.004,y:0,z:0},
-
-  leftShoulder:{x:.13,y:.03,z:0},
-  rightShoulder:{x:0,y:0,z:0},
-
-  leftArm:{x:1.04,y:-.13,z:.38},
-  rightArm:{x:1.01,y:.28,z:-.03},
-  leftForeArm:{x:.18,y:.03,z:.08},
-  rightForeArm:{x:.18,y:-.03,z:-.08},
-  leftHand:{x:.02,y:0,z:.02},
-  rightHand:{x:.02,y:0,z:-.02},
-
-  hips:{x:0,y:0,z:0},
-  spine:{x:.02,y:0,z:0},
-  spine1:{x:0,y:0,z:0},
-  spine2:{x:0,y:0,z:0},
-
-  leftUpLeg:{x:-0.05,y:0.08,z:0.10},
-  rightUpLeg:{x:0,y:0,z:0},
-  leftKnee:{x:0.01,y:0,z:0},
-  rightKnee:{x:0,y:0,z:0},
-  leftFoot:{x:0,y:0,z:0},
-  rightFoot:{x:0,y:0,z:0},
-  leftToe:{x:0,y:0,z:0},
-  rightToe:{x:0,y:0,z:0},
-
-  leftFingerCurl:.14,
-  rightFingerCurl:.52,
-  fingerCurl:.52
-};
-const THIEF_TALK_POSE_B={
-  head:{x:0.21,y:0.02,z:0.03},
-  neck:{x:0.004,y:0,z:0},
-
-  leftShoulder:{x:-0.03,y:0.03,z:-0.16},
-  rightShoulder:{x:0,y:0,z:0},
-
-  leftArm:{x:1.04,y:0.06,z:0.38},
-  rightArm:{x:0.91,y:-0.16,z:-0.03},
-
-  leftForeArm:{x:0.18,y:0.03,z:0},
-  rightForeArm:{x:0.18,y:-0.03,z:-0.28},
-
-  leftHand:{x:-0.23,y:0,z:0.02},
-  rightHand:{x:0.02,y:0,z:-0.02},
-
-  hips:{x:0,y:0,z:0},
-  spine:{x:0.02,y:0,z:0},
-  spine1:{x:0,y:0,z:0},
-  spine2:{x:0,y:0,z:0},
-
-  leftUpLeg:{x:-0.08,y:0.06,z:0.11},
-  rightUpLeg:{x:0,y:0,z:0},
-
-  leftKnee:{x:-0.03,y:0,z:0},
-  rightKnee:{x:0,y:0,z:0},
-
-  leftFoot:{x:0,y:0,z:0},
-  rightFoot:{x:0,y:0,z:0},
-
-  leftToe:{x:0,y:0,z:0},
-  rightToe:{x:0,y:0,z:0},
-
-  leftFingerCurl:0.28,
-  rightFingerCurl:0.20,
-  fingerCurl:0.20
-};
-
-const THIEF_TALK_POSE=THIEF_TALK_POSE_A;
-
-const THIEF_POST_DIALOGUE_POSE={
-
-  head:{x:.03,y:.02,z:.03},
-  neck:{x:.004,y:0,z:0},
-
-  leftShoulder:{x:.13,y:.03,z:0},
-  rightShoulder:{x:0,y:0,z:0},
-
-  leftArm:{x:1.04,y:-.13,z:.38},
-  rightArm:{x:1.01,y:.28,z:-.03},
-  leftForeArm:{x:.18,y:.03,z:.08},
-  rightForeArm:{x:.18,y:-.03,z:-.08},
-  leftHand:{x:.02,y:0,z:.02},
-  rightHand:{x:.02,y:0,z:-.02},
-
-  hips:{x:0,y:0,z:0},
-  spine:{x:.02,y:0,z:0},
-  spine1:{x:0,y:0,z:0},
-  spine2:{x:0,y:0,z:0},
-
-  leftUpLeg:{x:.03,y:.28,z:.03},
-  rightUpLeg:{x:0,y:0,z:0},
-  leftKnee:{x:0,y:0,z:0},
-  rightKnee:{x:0,y:0,z:0},
-  leftFoot:{x:0,y:0,z:0},
-  rightFoot:{x:0,y:0,z:0},
-  leftToe:{x:0,y:0,z:0},
-  rightToe:{x:0,y:0,z:0},
-
-  leftFingerCurl:.14,
-  rightFingerCurl:.52,
-  fingerCurl:.52
-};
 
 const TOXIC_FINGER_STATE=new WeakMap();
 function getToxicFingerState(c){
@@ -7256,8 +6588,8 @@ function loadCharacter(c){
         c.root.updateMatrixWorld(true);
       }
       if(c.name==="player"){
-        PLAYER_PROCEDURAL_STATE.delete(c);
-        createPlayerProceduralState(c);
+        resetPlayerProceduralState(c);
+        getPlayerProceduralState(c);
         applyPlayerOutfitPreset();
         if(typeof EVENT_GIRL!=="undefined"){
           EVENT_GIRL.heightMatched=false;
@@ -7526,343 +6858,18 @@ function attachTvScreen(){
   buildCasinoBettingSheet();
 }
 
-const JUKEBOX_AUDIO_RUNTIME={
-  tracks:[
-    {
-      id:"epic-ballad",
-      title:"Epic Ballad",
-      file:"./audio/Epic Ballad.mp3",
-      duration:"4:30"
-    },
-    {
-      id:"metal-drum",
-      title:"Metal Drum",
-      file:"./audio/Metal  Drum.mp3",
-      duration:"4:55"
-    }
-  ],
-  audio:null,
-  currentTrack:null,
-  menuOpen:false,
-  playToken:0,
-  loadingTrackId:null,
-  maxVolume:.72,
-  nearDistance:3.0,
-  farDistance:18.0,
-  prompt:null,
-  panel:null,
-  status:null
-};
-function ensureJukeboxAudioElement(){
-  if(JUKEBOX_AUDIO_RUNTIME.audio) return JUKEBOX_AUDIO_RUNTIME.audio;
-
-  const audio=new Audio();
-  audio.preload="auto";
-  audio.loop=true;
-  audio.volume=0;
-
-  audio.addEventListener("error",()=>{
-    const err=audio.error;
-
-    if(!err){
-      updateJukeboxMenuStatus("AUDIO UNAVAILABLE");
-      return;
-    }
-
-    if(err.code===MediaError.MEDIA_ERR_ABORTED){
-      return;
-    }
-
-    updateJukeboxMenuStatus("AUDIO FILE COULD NOT BE LOADED");
-  });
-
-  audio.addEventListener("playing",()=>{
-    const t=JUKEBOX_AUDIO_RUNTIME.currentTrack;
-    JUKEBOX_AUDIO_RUNTIME.loadingTrackId=null;
-    updateJukeboxMenuStatus(
-      t ? `NOW PLAYING · ${t.title}` : "NOW PLAYING"
-    );
-  });
-
-  audio.addEventListener("pause",()=>{
-    if(!JUKEBOX_AUDIO_RUNTIME.menuOpen){
-      const playing=
-        JUKEBOX_AUDIO_RUNTIME.currentTrack &&
-        !audio.paused;
-
-      if(!playing) setJukeboxPower(false);
-    }
-  });
-
-  JUKEBOX_AUDIO_RUNTIME.audio=audio;
-  return audio;
-}
-function updateJukeboxMenuStatus(message){
-  const status=JUKEBOX_AUDIO_RUNTIME.status;
-  if(status) status.textContent=message||"CHOOSE A SONG";
-}
-function stopJukeboxMusic(keepLights=true){
-  const audio=JUKEBOX_AUDIO_RUNTIME.audio;
-
-  JUKEBOX_AUDIO_RUNTIME.playToken++;
-  JUKEBOX_AUDIO_RUNTIME.loadingTrackId=null;
-
-  if(audio){
-    audio.pause();
-    try{
-      audio.currentTime=0;
-    }catch(_){}
-  }
-
-  JUKEBOX_AUDIO_RUNTIME.currentTrack=null;
-
-  updateJukeboxMenuStatus("MUSIC STOPPED");
-
-  if(!keepLights){
-    setJukeboxPower(false);
-  }
-
-  refreshJukeboxTrackButtons();
-}
-async function playJukeboxTrack(trackId){
-  const track=
-    JUKEBOX_AUDIO_RUNTIME.tracks.find(t=>t.id===trackId);
-
-  if(!track) return;
-
-  const audio=ensureJukeboxAudioElement();
-
-  if(
-    JUKEBOX_AUDIO_RUNTIME.currentTrack?.id===track.id &&
-    !audio.paused &&
-    !audio.ended
-  ){
-    updateJukeboxMenuStatus(`NOW PLAYING · ${track.title}`);
-    return;
-  }
-
-  const token=++JUKEBOX_AUDIO_RUNTIME.playToken;
-
-  JUKEBOX_AUDIO_RUNTIME.loadingTrackId=track.id;
-  JUKEBOX_AUDIO_RUNTIME.currentTrack=track;
-
-  setJukeboxPower(true);
-  updateJukeboxMenuStatus(`LOADING · ${track.title}`);
-
-  const wantedSrc=new URL(track.file,location.href).href;
-  const currentSrc=audio.currentSrc || audio.src || "";
-
-  if(currentSrc!==wantedSrc){
-    audio.pause();
-
-    audio.src=track.file;
-  }
-
-  try{
-    const playPromise=audio.play();
-
-    if(playPromise && typeof playPromise.then==="function"){
-      await playPromise;
-    }
-
-    if(token!==JUKEBOX_AUDIO_RUNTIME.playToken){
-      return;
-    }
-
-    JUKEBOX_AUDIO_RUNTIME.loadingTrackId=null;
-    updateJukeboxMenuStatus(`NOW PLAYING · ${track.title}`);
-  }catch(err){
-    if(token!==JUKEBOX_AUDIO_RUNTIME.playToken){
-      return;
-    }
-
-    const name=String(err?.name||"");
-
-    if(
-      name==="AbortError" ||
-      name==="NotAllowedError" && document.visibilityState==="hidden"
-    ){
-      return;
-    }
-
-    console.error("Jukebox audio play error",err);
-
-    JUKEBOX_AUDIO_RUNTIME.loadingTrackId=null;
-    updateJukeboxMenuStatus(
-      "AUDIO COULD NOT START · CLICK THE SONG AGAIN"
-    );
-  }
-
-  refreshJukeboxTrackButtons();
-}
-function refreshJukeboxTrackButtons(){
-  document.querySelectorAll("[data-jukebox-track]").forEach(btn=>{
-    const active=
-      JUKEBOX_AUDIO_RUNTIME.currentTrack?.id===btn.dataset.jukeboxTrack &&
-      !JUKEBOX_AUDIO_RUNTIME.audio?.paused;
-    btn.style.borderColor=active?"#e5be82":"rgba(180,135,85,.45)";
-    btn.style.background=active?"#8a5d31":"#5b3d27";
-    btn.style.boxShadow=active?"0 0 0 1px rgba(229,190,130,.35) inset":"none";
-  });
-}
-function setJukeboxMenuOpen(open){
-  JUKEBOX_AUDIO_RUNTIME.menuOpen=!!open;
-  const panel=JUKEBOX_AUDIO_RUNTIME.panel;
-  if(panel) panel.style.display=open?"block":"none";
-  if(open){
-    setJukeboxPower(true);
-    refreshJukeboxTrackButtons();
-    const current=JUKEBOX_AUDIO_RUNTIME.currentTrack;
-    const audio=JUKEBOX_AUDIO_RUNTIME.audio;
-    const playing=!!current && !!audio && !audio.paused;
-    updateJukeboxMenuStatus(
-      playing
-        ? `NOW PLAYING · ${current.title}`
-        : "CHOOSE A SONG"
-    );
-    return;
-  }
-  const audio=JUKEBOX_AUDIO_RUNTIME.audio;
-  const musicPlaying=
-    !!JUKEBOX_AUDIO_RUNTIME.currentTrack &&
-    !!audio &&
-    !audio.paused;
-  if(!musicPlaying){
-    setJukeboxPower(false);
-  }
-}
-function initJukeboxMusicMenu(){
-  if(document.getElementById("jukeboxMusicMenu")) return;
-  const prompt=uiNode("div",{
-    id:"jukeboxWorldPrompt",
-    text:"E · USE JUKEBOX",
-    className:"interactionPromptUnified",
-    style:"display:none"
-  });
-  prompt.classList.add("interactionPromptUnified");
-  const panel=uiNode("div",{
-    id:"jukeboxMusicMenu",
-    style:"display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:13130;width:330px;padding:12px;border:1px solid #8f6946;border-radius:9px;background:#49311f;color:#fff4df;font:12px Arial;box-shadow:0 10px 26px rgba(0,0,0,.38)"
-  });
-  const header=uiNode("div",{
-    style:"display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"
-  });
-  header.append(
-    uiNode("div",{
-      text:"JUKEBOX",
-      style:"font:900 14px Arial;letter-spacing:.06em;color:#efc58d"
-    }),
-    uiNode("button",{
-      id:"jukeboxMenuClose",
-      text:"×",
-      style:"width:30px;height:30px;border-radius:7px;border:1px solid rgba(230,196,148,.32);background:#4e321f;color:#f6ddba;font:900 18px Arial;cursor:pointer"
-    })
-  );
-  const status=uiNode("div",{
-    id:"jukeboxMenuStatus",
-    text:"CHOOSE A SONG",
-    style:"margin:7px 0 9px;padding:6px 8px;border-radius:5px;background:rgba(28,17,10,.26);color:#e8c99c;font:900 10px Arial;text-align:center"
-  });
-  const list=uiNode("div",{
-    style:"display:grid;gap:8px"
-  });
-  JUKEBOX_AUDIO_RUNTIME.tracks.forEach((track,index)=>{
-    const btn=uiNode("button",{
-      attrs:{"data-jukebox-track":track.id},
-      style:"display:grid;grid-template-columns:28px 1fr auto;gap:7px;align-items:center;width:100%;padding:8px;border:1px solid rgba(180,135,85,.34);border-radius:6px;background:#583b26;color:#fff0da;text-align:left;cursor:pointer"
-    });
-    btn.append(
-      uiNode("span",{
-        text:String(index+1).padStart(2,"0"),
-        style:"font:900 13px monospace;color:#e2b873"
-      }),
-      uiNode("span",{
-        text:track.title,
-        style:"font:900 12px Arial;letter-spacing:.04em"
-      }),
-      uiNode("span",{
-        text:track.duration,
-        style:"font:10px monospace;color:#c9ab82"
-      })
-    );
-    btn.onclick=()=>playJukeboxTrack(track.id);
-    list.append(btn);
-  });
-  const actions=uiNode("div",{
-    style:"display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px"
-  });
-  const stop=uiNode("button",{
-    text:"STOP MUSIC",
-    style:"padding:9px;border:1px solid rgba(220,178,119,.38);border-radius:8px;background:#563820;color:#f6dfbd;font-weight:900;cursor:pointer"
-  });
-  const off=uiNode("button",{
-    text:"TURN OFF",
-    style:"padding:9px;border:1px solid rgba(220,178,119,.38);border-radius:8px;background:#352419;color:#f6dfbd;font-weight:900;cursor:pointer"
-  });
-  stop.onclick=()=>stopJukeboxMusic(true);
-  off.onclick=()=>{
-    stopJukeboxMusic(false);
-    setJukeboxMenuOpen(false);
-  };
-  actions.append(stop,off);
-  panel.append(
-    header,
-    uiNode("div",{
-      text:"CHOOSE A SONG",
-      style:"color:#cda46f;font:900 10px Arial;letter-spacing:.13em;margin-bottom:7px"
-    }),
-    status,
-    list,
-    actions,
-  );
-  document.body.append(prompt,panel);
-  document.getElementById("jukeboxMenuClose").onclick=()=>{
-    setJukeboxMenuOpen(false);
-  };
-  panel.addEventListener("pointerdown",e=>e.stopPropagation());
-  panel.addEventListener("click",e=>e.stopPropagation());
-  JUKEBOX_AUDIO_RUNTIME.prompt=prompt;
-  JUKEBOX_AUDIO_RUNTIME.panel=panel;
-  JUKEBOX_AUDIO_RUNTIME.status=status;
-}
-function updateJukeboxInteraction(){
-  if(!JUKEBOX_AUDIO_RUNTIME.prompt) return;
-  const near=casinoJukeboxNear();
-  JUKEBOX_AUDIO_RUNTIME.prompt.style.display=
-    near && !JUKEBOX_AUDIO_RUNTIME.menuOpen
-      ? "block"
-      : "none";
-  if(!near && JUKEBOX_AUDIO_RUNTIME.menuOpen){
-    setJukeboxMenuOpen(false);
-  }
-  const audio=JUKEBOX_AUDIO_RUNTIME.audio;
-  if(!audio || audio.paused || !player?.root || !CASINO_MEDIA_RUNTIME.jukebox){
-    return;
-  }
-  const a=new THREE.Vector3();
-  const b=new THREE.Vector3();
-  CASINO_MEDIA_RUNTIME.jukebox.getWorldPosition(a);
-  player.root.getWorldPosition(b);
-  const dist=a.distanceTo(b);
-  const rt=JUKEBOX_AUDIO_RUNTIME;
-  let volume=0;
-  if(dist<=rt.nearDistance){
-    volume=rt.maxVolume;
-  }else if(dist<rt.farDistance){
-    const t=(dist-rt.nearDistance)/(rt.farDistance-rt.nearDistance);
-    volume=rt.maxVolume*(1-THREE.MathUtils.smoothstep(t,0,1));
-  }
-  audio.volume=THREE.MathUtils.clamp(volume,0,1);
-}
 
 
-function casinoJukeboxNear(){
-  if(!CASINO_MEDIA_RUNTIME.jukebox || !player?.root || activeWorldZone!=="leftRoom") return false;
-  const a=new THREE.Vector3(), b=new THREE.Vector3();
-  CASINO_MEDIA_RUNTIME.jukebox.getWorldPosition(a);
-  player.root.getWorldPosition(b);
-  return a.distanceTo(b)<=3.2;
-}
+
+
+
+
+
+
+
+
+
+
 addEventListener("keydown",e=>{
   if(
     e.code!=="KeyE" ||
@@ -7876,943 +6883,18 @@ addEventListener("keydown",e=>{
     setJukeboxMenuOpen(!JUKEBOX_AUDIO_RUNTIME.menuOpen);
   }
 },true);
-function setJukeboxPower(on){
-  CASINO_MEDIA_RUNTIME.jukeboxOn=!!on;
-  const palette=[0xff356d,0x38e8ff,0xffd23f,0xb96cff];
-  CASINO_MEDIA_RUNTIME.jukeboxLightMaterials.forEach((mat,i)=>{
-    mat.emissive.setHex(on?palette[i%palette.length]:0x000000);
-    mat.emissiveIntensity=on?2.1:0;
-    mat.needsUpdate=true;
-  });
-  const btn=document.getElementById("jukeboxPowerButton");
-  if(btn) btn.textContent=`JUKEBOX ${on?"ON":"OFF"} · CLICK TO TOGGLE`;
-}
+
 
 setTimeout(()=>rebuildCasinoEditableColliders?.(),1600);
 setTimeout(()=>rebuildCasinoEditableColliders?.(),1200);
-initJukeboxMusicMenu();
+
 let casinoReception=null;
 
 
-function createCasinoBoyController(ctx,CASINO_BOY){
-  const THREE=ctx.THREE;
 
-  const normalizeAngle=(angle)=>{
-    return Math.atan2(Math.sin(angle),Math.cos(angle));
-  };
-  const fitToPlayerHeight=(model)=>{
-    const THREE=ctx.THREE;
-    if(!model) return false;
-    model.updateMatrixWorld(true);
-    const sourceBox=new THREE.Box3().setFromObject(model);
-    const sourceH=sourceBox.getSize(new THREE.Vector3()).y;
-    if(!Number.isFinite(sourceH) || sourceH<=.001) return false;
 
-    let targetH=2.05;
-    if(ctx.player?.model && ctx.player?.ready){
-      ctx.player.model.updateMatrixWorld(true);
-      const pb=new THREE.Box3().setFromObject(ctx.player.model);
-      const ph=pb.getSize(new THREE.Vector3()).y;
-      if(Number.isFinite(ph) && ph>.001){
-        targetH=ph;
-      }
-    }
 
-    model.scale.multiplyScalar(targetH/sourceH);
-    model.updateMatrixWorld(true);
-    return true;
-  };
-const CASINO_BOY_STANDARD_POSE={
-  spine2:[0,0,0],
 
-  leftShoulder:[0,0,0],
-  leftArm:[38,0,-6],
-  leftForeArm:[0,0,-4],
-  leftHand:[0,0,0],
-
-  rightShoulder:[0,0,0],
-  rightArm:[35,0,6],
-  rightForeArm:[0,0,4],
-  rightHand:[0,0,0],
-
-  leftUpLeg:[0,0,0],
-  rightUpLeg:[0,0,0],
-
-  leftKnee:[0,0,0],
-  rightKnee:[0,0,0],
-
-  leftFoot:[0,0,0],
-  rightFoot:[0,0,0],
-
-  leftToe:[0,0,0],
-  rightToe:[0,0,0],
-
-  neck:[0,0,0],
-  head:[0,0,0]
-};
-const CASINO_BOY_GESTURE_POSE={
-  spine2:[0,0,0],
-
-  leftShoulder:[-7,0,0],
-  leftArm:[17,0,-6],
-  leftForeArm:[53,0,-4],
-  leftHand:[-17,0,0],
-
-  rightShoulder:[0,0,0],
-  rightArm:[36,0,6],
-  rightForeArm:[0,0,4],
-  rightHand:[0,0,0],
-
-  leftUpLeg:[0,0,0],
-  rightUpLeg:[0,0,0],
-
-  leftKnee:[0,0,0],
-  rightKnee:[0,0,0],
-
-  leftFoot:[0,0,0],
-  rightFoot:[0,0,0],
-
-  leftToe:[0,0,0],
-  rightToe:[0,0,0],
-
-  neck:[0,0,0],
-  head:[0,0,0]
-};
-const CASINO_BOY_ANIM={
-  cycleSeconds:4.4,
-  poseLerp:.10,
-  legLerp:.075,
-
-  headX:1.45,
-  headY:.70,
-  torsoX:.50,
-  torsoY:.38,
-
-  legAmp:1.15,
-
-  talkBodyTurnFactor:.22,
-  talkBodyTurnMaxDeg:12
-};
-function casinoBoyFindBone(root,names){
-  for(const name of names){
-    const exact=root.getObjectByName(name);
-    if(exact) return exact;
-  }
-
-  const norm=s=>String(s||"")
-    .toLowerCase()
-    .replace(/mixamorig/g,"")
-    .replace(/[^a-z0-9]/g,"");
-
-  const all=[];
-  root.traverse(o=>{
-    if(o?.isBone) all.push(o);
-  });
-
-  const wanted=names.map(norm);
-
-  for(const w of wanted){
-    const exact=all.find(b=>norm(b.name)===w);
-    if(exact) return exact;
-  }
-
-  for(const w of wanted){
-    const fuzzy=all.find(b=>{
-      const n=norm(b.name);
-      return n.includes(w) || n.endsWith(w);
-    });
-    if(fuzzy) return fuzzy;
-  }
-
-  return null;
-}
-function casinoBoyBuildRig(root){
-  return {
-    hips:casinoBoyFindBone(root,["mixamorig:Hips_01","mixamorig:Hips","Hips"]),
-
-    spine:casinoBoyFindBone(root,["mixamorig:Spine_02","mixamorig:Spine","Spine"]),
-    spine1:casinoBoyFindBone(root,["mixamorig:Spine1_03","mixamorig:Spine1","Spine1"]),
-    spine2:casinoBoyFindBone(root,["mixamorig:Spine2_04","mixamorig:Spine2","Spine2"]),
-
-    neck:casinoBoyFindBone(root,["mixamorig:Neck_05","mixamorig:Neck","Neck"]),
-    head:casinoBoyFindBone(root,["mixamorig:Head_06","mixamorig:Head","Head"]),
-
-    leftShoulder:casinoBoyFindBone(root,["mixamorig:LeftShoulder_08","mixamorig:LeftShoulder","LeftShoulder"]),
-    leftArm:casinoBoyFindBone(root,["mixamorig:LeftArm_09","mixamorig:LeftArm","LeftArm"]),
-    leftForeArm:casinoBoyFindBone(root,["mixamorig:LeftForeArm_010","mixamorig:LeftForeArm","LeftForeArm"]),
-    leftHand:casinoBoyFindBone(root,["mixamorig:LeftHand_011","mixamorig:LeftHand","LeftHand"]),
-
-    rightShoulder:casinoBoyFindBone(root,["mixamorig:RightShoulder_032","mixamorig:RightShoulder","RightShoulder"]),
-    rightArm:casinoBoyFindBone(root,["mixamorig:RightArm_033","mixamorig:RightArm","RightArm"]),
-    rightForeArm:casinoBoyFindBone(root,["mixamorig:RightForeArm_034","mixamorig:RightForeArm","RightForeArm"]),
-    rightHand:casinoBoyFindBone(root,["mixamorig:RightHand_035","mixamorig:RightHand","RightHand"]),
-
-    leftUpLeg:casinoBoyFindBone(root,["mixamorig:LeftUpLeg_055","mixamorig:LeftUpLeg","LeftUpLeg"]),
-    leftKnee:casinoBoyFindBone(root,["mixamorig:LeftLeg_056","mixamorig:LeftLeg","LeftLeg"]),
-    leftFoot:casinoBoyFindBone(root,["mixamorig:LeftFoot_057","mixamorig:LeftFoot","LeftFoot"]),
-
-    rightUpLeg:casinoBoyFindBone(root,["mixamorig:RightUpLeg_060","mixamorig:RightUpLeg","RightUpLeg"]),
-    rightKnee:casinoBoyFindBone(root,["mixamorig:RightLeg_061","mixamorig:RightLeg","RightLeg"]),
-    rightFoot:casinoBoyFindBone(root,["mixamorig:RightFoot_062","mixamorig:RightFoot","RightFoot"])
-  };
-}
-function casinoBoyCaptureRest(){
-  CASINO_BOY.rest.clear();
-
-  for(const bone of Object.values(CASINO_BOY.bones)){
-    if(bone?.isBone){
-      CASINO_BOY.rest.set(bone,bone.quaternion.clone());
-    }
-  }
-}
-function loadCasinoBoy(){
-  ctx.loadGLBFromCandidates(
-    [new URL("../../assets/models/boy.glb", import.meta.url).href],
-    (gltf,path)=>{
-      const boy=gltf.scene;
-      boy.name="casino_boy_gambler";
-
-      ctx.cloneMaterials?.(boy);
-      boy.scale.set(1,1,1);
-      ctx.centerModelXZ?.(boy);
-      fitToPlayerHeight(boy);
-      ctx.putModelOnFloor?.(boy,0);
-
-      boy.scale.copy(CASINO_BOY.scale);
-      boy.position.copy(CASINO_BOY.position);
-      boy.rotation.copy(CASINO_BOY.rotation);
-
-      boy.visible=true;
-      ctx.scene.add(boy);
-
-      CASINO_BOY.root=boy;
-      CASINO_BOY.bones=casinoBoyBuildRig(boy);
-      casinoBoyCaptureRest();
-
-      ctx.registerCasinoEditable?.("casinoBoy",boy);
-      ctx.onLoaded?.(boy);
-
-      CASINO_BOY.talking=false;
-    },
-    err=>console.error("boy.glb load error",err)
-  );
-}
-function casinoBoySmooth01(t){
-  t=THREE.MathUtils.clamp(t,0,1);
-  return t*t*(3-2*t);
-}
-function casinoBoyLerpVec(a,b,t){
-  return [
-    THREE.MathUtils.lerp(a?.[0]||0,b?.[0]||0,t),
-    THREE.MathUtils.lerp(a?.[1]||0,b?.[1]||0,t),
-    THREE.MathUtils.lerp(a?.[2]||0,b?.[2]||0,t)
-  ];
-}
-function casinoBoyTargetQuaternion(bone,deg){
-  const rest=CASINO_BOY.rest.get(bone);
-  if(!bone || !rest) return null;
-
-  return rest.clone().multiply(
-    new THREE.Quaternion().setFromEuler(
-      new THREE.Euler(
-        THREE.MathUtils.degToRad(deg?.[0]||0),
-        THREE.MathUtils.degToRad(deg?.[1]||0),
-        THREE.MathUtils.degToRad(deg?.[2]||0),
-        "XYZ"
-      )
-    )
-  );
-}
-function casinoBoySetBone(bone,deg,k){
-  if(!bone) return;
-
-  const target=casinoBoyTargetQuaternion(bone,deg);
-  if(!target) return;
-
-  bone.quaternion.slerp(target,k);
-}
-function casinoBoyApplyUpperPose(pose,extra=null,k=CASINO_BOY_ANIM.poseLerp){
-  const b=CASINO_BOY.bones;
-
-  for(const key of [
-    "spine2",
-    "leftShoulder","leftArm","leftForeArm","leftHand",
-    "rightShoulder","rightArm","rightForeArm","rightHand",
-    "neck","head"
-  ]){
-    const p=pose?.[key]||[0,0,0];
-    const e=extra?.[key]||[0,0,0];
-
-    casinoBoySetBone(
-      b[key],
-      [
-        (p[0]||0)+(e[0]||0),
-        (p[1]||0)+(e[1]||0),
-        (p[2]||0)+(e[2]||0)
-      ],
-      k
-    );
-  }
-}
-function casinoBoyLookAtPlayerWithHeadOnly(now){
-  const root=CASINO_BOY.root;
-  const b=CASINO_BOY.bones;
-
-  if(!root || !player?.root) return;
-
-  const boyPos=new THREE.Vector3();
-  const playerPos=new THREE.Vector3();
-
-  root.getWorldPosition(boyPos);
-  player.root.getWorldPosition(playerPos);
-
-  const worldYaw=Math.atan2(
-    playerPos.x-boyPos.x,
-    playerPos.z-boyPos.z
-  );
-
-  const baseYaw=CASINO_BOY.rotation.y;
-  const localYaw=normalizeAngle(worldYaw-baseYaw);
-  const localDeg=THREE.MathUtils.radToDeg(localYaw);
-
-  const bodyTurnDeg=THREE.MathUtils.clamp(
-    localDeg*CASINO_BOY_ANIM.talkBodyTurnFactor,
-    -CASINO_BOY_ANIM.talkBodyTurnMaxDeg,
-    CASINO_BOY_ANIM.talkBodyTurnMaxDeg
-  );
-
-  const targetRootYaw=
-    baseYaw +
-    THREE.MathUtils.degToRad(bodyTurnDeg);
-
-  root.rotation.y +=
-    normalizeAngle(
-      targetRootYaw-root.rotation.y
-    )*.075;
-
-  const remainingDeg=localDeg-bodyTurnDeg;
-
-  const neckYaw=THREE.MathUtils.clamp(
-    remainingDeg*.35,
-    -24,
-    24
-  );
-
-  const headYaw=THREE.MathUtils.clamp(
-    remainingDeg*.62,
-    -40,
-    40
-  );
-
-  const nod=Math.sin(now*2.0)*.8;
-
-  casinoBoySetBone(
-    b.neck,
-    [nod*.42,neckYaw,0],
-    .10
-  );
-
-  casinoBoySetBone(
-    b.head,
-    [nod,headYaw,0],
-    .11
-  );
-}
-function casinoBoyAnimateFingers(now,blend){
-  const b=CASINO_BOY.bones;
-  const pulse=(Math.sin(now*1.15)+1)*.5;
-
-  const leftCurl=.08 + pulse*.05 + blend*.03;
-  const rightCurl=.07 + (1-pulse)*.04 + blend*.025;
-
-  const fingerGroups=[
-    ["left",leftCurl],
-    ["right",rightCurl]
-  ];
-
-  for(const [side,curl] of fingerGroups){
-    for(const name of [
-      `${side}Index1`,`${side}Index2`,`${side}Index3`,
-      `${side}Middle1`,`${side}Middle2`,`${side}Middle3`,
-      `${side}Ring1`,`${side}Ring2`,`${side}Ring3`,
-      `${side}Pinky1`,`${side}Pinky2`,`${side}Pinky3`
-    ]){
-      const bone=b[name];
-      if(!bone) continue;
-      const rest=ctx.getRest(CASINO_BOY,bone);
-      smoothBoneTo(
-        bone,
-        rest.x+curl,
-        rest.y,
-        rest.z,
-        .045
-      );
-    }
-  }
-}
-function updateCasinoBoyProcedural(dt){
-  const root=CASINO_BOY.root;
-  if(!root) return;
-
-  root.position.copy(CASINO_BOY.position);
-  root.scale.copy(CASINO_BOY.scale);
-
-  const now=performance.now()*.001;
-
-  const talking=
-    ctx.QUEST?.dialogueActive &&
-    ctx.QUEST?.dialogueSpeaker==="BOY";
-
-  if(!talking){
-    root.rotation.x=THREE.MathUtils.lerp(
-      root.rotation.x,
-      CASINO_BOY.rotation.x,
-      .10
-    );
-    root.rotation.y +=
-      normalizeAngle(
-        CASINO_BOY.rotation.y-root.rotation.y
-      )*.10;
-    root.rotation.z=THREE.MathUtils.lerp(
-      root.rotation.z,
-      CASINO_BOY.rotation.z,
-      .10
-    );
-  }
-
-  CASINO_BOY.talking=talking;
-
-  if(!talking){
-
-    const cycleSeconds=13.2;
-    const u=((now%cycleSeconds)+cycleSeconds)%cycleSeconds/cycleSeconds;
-
-    let blend;
-
-    if(u<.31){
-      blend=0;
-    }else if(u<.46){
-      blend=casinoBoySmooth01((u-.31)/.15);
-    }else if(u<.78){
-      blend=1;
-    }else if(u<.93){
-      blend=1-casinoBoySmooth01((u-.78)/.15);
-    }else{
-      blend=0;
-    }
-
-    const pose={};
-
-    for(const key of [
-      "spine2",
-      "leftShoulder","leftArm","leftForeArm","leftHand",
-      "rightShoulder","rightArm","rightForeArm","rightHand",
-      "leftUpLeg","rightUpLeg",
-      "leftKnee","rightKnee",
-      "leftFoot","rightFoot",
-      "leftToe","rightToe",
-      "neck","head"
-    ]){
-      pose[key]=casinoBoyLerpVec(
-        CASINO_BOY_STANDARD_POSE[key],
-        CASINO_BOY_GESTURE_POSE[key],
-        blend
-      );
-    }
-
-    const a=Math.sin(now*1.55);
-    const c=Math.sin(now*1.10+.65);
-    const breath=Math.sin(now*.72);
-    const micro=Math.sin(now*1.85+.35);
-    const micro2=Math.sin(now*1.35+1.1);
-
-    casinoBoyApplyUpperPose(
-      pose,
-      {
-        spine2:[
-          a*CASINO_BOY_ANIM.torsoX + breath*.55,
-          c*CASINO_BOY_ANIM.torsoY + micro*.28,
-          breath*.20
-        ],
-        neck:[
-          a*.55 + breath*.18,
-          c*.24,
-          micro2*.16
-        ],
-        head:[
-          a*CASINO_BOY_ANIM.headX + micro*.55,
-          c*CASINO_BOY_ANIM.headY + micro2*.42,
-          micro*.20
-        ],
-        leftShoulder:[
-          breath*.28,
-          0,
-          micro*.34
-        ],
-        rightShoulder:[
-          -breath*.24,
-          0,
-          -micro*.28
-        ],
-        leftHand:[
-          micro*.38,
-          micro2*.22,
-          breath*.18
-        ],
-        rightHand:[
-          -micro*.32,
-          -micro2*.18,
-          -breath*.15
-        ]
-      }
-    );
-
-    const transitionAmount=
-      blend>0 && blend<1
-        ? Math.sin(blend*Math.PI)
-        : 0;
-
-    const stepWave=Math.sin(now*2.2);
-    const stepWaveOpp=Math.sin(now*2.2+Math.PI);
-
-    const leftLift=Math.max(0,stepWave)*transitionAmount;
-    const rightLift=Math.max(0,stepWaveOpp)*transitionAmount;
-
-    casinoBoySetBone(
-      CASINO_BOY.bones.leftUpLeg,
-      [leftLift*1.8,0,leftLift*.35],
-      .075
-    );
-
-    casinoBoySetBone(
-      CASINO_BOY.bones.rightUpLeg,
-      [rightLift*1.5,0,-rightLift*.28],
-      .075
-    );
-
-    casinoBoySetBone(
-      CASINO_BOY.bones.leftKnee,
-      [leftLift*2.2,0,0],
-      .075
-    );
-
-    casinoBoySetBone(
-      CASINO_BOY.bones.rightKnee,
-      [rightLift*1.9,0,0],
-      .075
-    );
-
-    casinoBoySetBone(
-      CASINO_BOY.bones.leftFoot,
-      [-leftLift*.55,0,0],
-      .07
-    );
-
-    casinoBoySetBone(
-      CASINO_BOY.bones.rightFoot,
-      [-rightLift*.48,0,0],
-      .07
-    );
-
-    casinoBoySetBone(
-      CASINO_BOY.bones.leftToe,
-      [leftLift*.22,0,0],
-      .065
-    );
-
-    casinoBoySetBone(
-      CASINO_BOY.bones.rightToe,
-      [rightLift*.20,0,0],
-      .065
-    );
-
-    casinoBoyAnimateFingers(now,blend);
-  }else{
-
-    casinoBoyApplyUpperPose(
-      CASINO_BOY_STANDARD_POSE,
-      null,
-      .11
-    );
-
-    casinoBoySetBone(CASINO_BOY.bones.leftUpLeg,CASINO_BOY_STANDARD_POSE.leftUpLeg,.09);
-    casinoBoySetBone(CASINO_BOY.bones.rightUpLeg,CASINO_BOY_STANDARD_POSE.rightUpLeg,.09);
-    casinoBoySetBone(CASINO_BOY.bones.leftKnee,CASINO_BOY_STANDARD_POSE.leftKnee,.09);
-    casinoBoySetBone(CASINO_BOY.bones.rightKnee,CASINO_BOY_STANDARD_POSE.rightKnee,.09);
-    casinoBoySetBone(CASINO_BOY.bones.leftFoot,CASINO_BOY_STANDARD_POSE.leftFoot,.09);
-    casinoBoySetBone(CASINO_BOY.bones.rightFoot,CASINO_BOY_STANDARD_POSE.rightFoot,.09);
-    casinoBoySetBone(CASINO_BOY.bones.leftToe,CASINO_BOY_STANDARD_POSE.leftToe,.09);
-    casinoBoySetBone(CASINO_BOY.bones.rightToe,CASINO_BOY_STANDARD_POSE.rightToe,.09);
-
-    casinoBoyAnimateFingers(now,0);
-
-    casinoBoyLookAtPlayerWithHeadOnly(now);
-  }
-
-  root.updateMatrixWorld(true);
-}
-  return {
-    load:loadCasinoBoy,
-    update:updateCasinoBoyProcedural
-  };
-}
-
-
-function createCasinoReceptionistController(ctx){
-  const THREE=ctx.THREE;
-  let casinoWoman=null;
-
-  const look={
-    head:null,neck:null,spine:null,spine2:null,hips:null,
-    rightArm:null,rightForeArm:null,rightHand:null,
-    leftArm:null,leftForeArm:null,leftHand:null,
-    ready:false,rest:new Map(),wasTalking:false,talkStart:0,
-    welcomeActive:false,welcomeStart:0,
-    baseYaw:THREE.MathUtils.degToRad(116)
-  };
-
-  const approvedPose={
-    leftShoulder:[0,0,0],
-    leftArm:[65,60,7],
-    leftForeArm:[28,-23,31],
-    leftHand:[0,0,0],
-    rightShoulder:[0,0,0],
-    rightArm:[81,20,9],
-    rightForeArm:[0,0,0],
-    rightHand:[0,0,0]
-  };
-
-  const poseState={
-    rest:new WeakMap(),
-    talkStart:0,
-    wasTalking:false,
-    baseYaw:null,
-    manualYawOffset:0,
-    postTalkLatched:false
-  };
-
-  const poseRest=(b)=>{
-    if(!b) return {x:0,y:0,z:0};
-    if(!poseState.rest.has(b)){
-      poseState.rest.set(b,b.rotation.clone());
-    }
-    return poseState.rest.get(b);
-  };
-
-  const poseBone=(bone,deg,k=.06)=>{
-    if(!bone) return;
-    const r=poseRest(bone);
-    bone.rotation.x=THREE.MathUtils.lerp(
-      bone.rotation.x,
-      r.x+THREE.MathUtils.degToRad(deg?.[0]||0),
-      k
-    );
-    bone.rotation.y=THREE.MathUtils.lerp(
-      bone.rotation.y,
-      r.y+THREE.MathUtils.degToRad(deg?.[1]||0),
-      k
-    );
-    bone.rotation.z=THREE.MathUtils.lerp(
-      bone.rotation.z,
-      r.z+THREE.MathUtils.degToRad(deg?.[2]||0),
-      k
-    );
-  };
-
-  const mirroredPose=()=>({
-    leftShoulder:[31,0,0],
-    leftArm:[74,-20,0],
-    leftForeArm:[7,0,0],
-    leftHand:[0,0,0],
-    rightShoulder:[0,0,0],
-    rightArm:[74,-20,0],
-    rightForeArm:[7,0,0],
-    rightHand:[0,0,0]
-  });
-
-  const findBones=()=>{
-    if(!casinoWoman) return false;
-    const clean=n=>String(n||"").toLowerCase().replace(/[^a-z0-9]/g,"");
-    const all=[];
-    casinoWoman.traverse(o=>{ if(o.isBone) all.push(o); });
-    const find=(tokens)=>{
-      for(const token of tokens){
-        const t=clean(token);
-        const exact=all.find(b=>clean(b.name)===t);
-        if(exact) return exact;
-      }
-      for(const token of tokens){
-        const t=clean(token);
-        const partial=all.find(b=>clean(b.name).includes(t));
-        if(partial) return partial;
-      }
-      return null;
-    };
-    look.head=find(["head06","head"]);
-    look.neck=find(["neck"]);
-    look.spine=find(["spine02","spine"]);
-    look.spine2=find(["spine2"]);
-    look.hips=find(["hips"]);
-    look.rightArm=find(["rightarm"]);
-    look.rightForeArm=find(["rightforearm"]);
-    look.rightHand=find(["righthand019","righthand"]);
-    look.leftArm=find(["leftarm"]);
-    look.leftForeArm=find(["leftforearm"]);
-    look.leftHand=find(["lefthand011","lefthand"]);
-    for(const k of [
-      "head","neck","spine","spine2","hips",
-      "rightArm","rightForeArm","rightHand",
-      "leftArm","leftForeArm","leftHand"
-    ]){
-      const b=look[k];
-      if(b && !look.rest.has(b)) look.rest.set(b,b.rotation.clone());
-    }
-    look.ready=!!(
-      look.head &&
-      look.rightArm &&
-      look.rightForeArm &&
-      look.rightHand
-    );
-    look.baseYaw=casinoWoman.rotation.y;
-    return look.ready;
-  };
-
-  const setInitialPose=()=>{
-    if(!casinoWoman) return false;
-    if(!look.ready) findBones();
-    if(!look.ready) return false;
-    const setNow=(bone,deg)=>{
-      if(!bone) return;
-      const r=poseRest(bone);
-      bone.rotation.set(
-        r.x+THREE.MathUtils.degToRad(deg?.[0]||0),
-        r.y+THREE.MathUtils.degToRad(deg?.[1]||0),
-        r.z+THREE.MathUtils.degToRad(deg?.[2]||0)
-      );
-    };
-    const p=approvedPose;
-    setNow(look.leftArm,p.leftArm);
-    setNow(look.leftForeArm,p.leftForeArm);
-    setNow(look.leftHand,p.leftHand);
-    setNow(look.rightArm,p.rightArm);
-    setNow(look.rightForeArm,p.rightForeArm);
-    setNow(look.rightHand,p.rightHand);
-    if(look.spine2) setNow(look.spine2,[0,0,0]);
-    if(look.neck) setNow(look.neck,[0,0,0]);
-    if(look.head) setNow(look.head,[0,0,0]);
-    if(poseState.baseYaw===null){
-      poseState.baseYaw=casinoWoman.rotation.y;
-    }
-    casinoWoman.updateMatrixWorld(true);
-    return true;
-  };
-
-  const fitToPlayerHeight=(model)=>{
-    model.updateMatrixWorld(true);
-    const sourceBox=new THREE.Box3().setFromObject(model);
-    const sourceH=sourceBox.getSize(new THREE.Vector3()).y;
-    if(!Number.isFinite(sourceH) || sourceH<=.001) return false;
-    let targetH=2.05;
-    if(ctx.player?.model && ctx.player?.ready){
-      ctx.player.model.updateMatrixWorld(true);
-      const pb=new THREE.Box3().setFromObject(ctx.player.model);
-      const ph=pb.getSize(new THREE.Vector3()).y;
-      if(Number.isFinite(ph) && ph>.001) targetH=ph;
-    }
-    model.scale.multiplyScalar(targetH/sourceH);
-    model.updateMatrixWorld(true);
-    return true;
-  };
-
-  const load=()=>{
-    const cfg=CASINO_MODEL_CONFIG.receptionist;
-    ctx.loadGLBFromCandidates(
-      cfg.paths,
-      (gltf)=>{
-        const woman=gltf.scene;
-        woman.name="casino_receptionist_girl";
-        ctx.cloneMaterials?.(woman);
-        woman.traverse(o=>{
-          if(o.isMesh){
-            o.castShadow=false;
-            o.receiveShadow=true;
-            o.frustumCulled=true;
-          }
-        });
-        woman.scale.set(1,1,1);
-        ctx.centerModelXZ?.(woman);
-        fitToPlayerHeight(woman);
-        ctx.putModelOnFloor?.(woman,0);
-        woman.position.set(...cfg.position);
-        woman.rotation.set(
-          ctx.THREE.MathUtils.degToRad(cfg.rotation[0]),
-          ctx.THREE.MathUtils.degToRad(cfg.rotation[1]),
-          ctx.THREE.MathUtils.degToRad(cfg.rotation[2])
-        );
-        woman.scale.set(...cfg.scale);
-        woman.updateMatrixWorld(true);
-        woman.visible=false;
-        ctx.scene.add(woman);
-        casinoWoman=woman;
-        ctx.registerCasinoEditable?.("casinoWoman",woman);
-
-        const reveal=()=>{
-          if(setInitialPose()){
-            woman.visible=true;
-            return true;
-          }
-          return false;
-        };
-        if(!reveal()){
-          requestAnimationFrame(()=>{
-            if(!reveal()){
-              setTimeout(()=>{
-                reveal();
-                woman.visible=true;
-              },60);
-            }
-          });
-        }
-        setTimeout(findBones,0);
-        setTimeout(()=>{findBones();setInitialPose();},300);
-        setTimeout(()=>{findBones();setInitialPose();},900);
-        ctx.onLoaded?.(woman);
-      },
-      err=>console.error("receptionist.glb load error",err)
-    );
-  };
-
-  const applyApprovedPose=(talking)=>{
-    if(!casinoWoman || !look.ready) return;
-    const now=performance.now();
-    const t=now*.001;
-    if(poseState.baseYaw===null){
-      poseState.baseYaw=casinoWoman.rotation.y;
-    }
-    if(talking && !poseState.wasTalking){
-      poseState.talkStart=now;
-      poseState.postTalkLatched=true;
-    }
-    poseState.wasTalking=talking;
-    const target=
-      (talking || poseState.postTalkLatched)
-        ? mirroredPose()
-        : approvedPose;
-
-    poseBone(look.leftArm,target.leftArm,talking?.055:.045);
-    poseBone(look.leftForeArm,target.leftForeArm,talking?.055:.045);
-    poseBone(look.leftHand,target.leftHand,talking?.06:.045);
-    poseBone(look.rightArm,target.rightArm,talking?.055:.045);
-    poseBone(look.rightForeArm,target.rightForeArm,talking?.055:.045);
-    poseBone(look.rightHand,target.rightHand,talking?.06:.045);
-
-    const bodyAmp=
-      (talking || poseState.postTalkLatched)?.010:.004;
-    const headAmp=
-      (talking || poseState.postTalkLatched)?.045:.012;
-
-    if(look.spine2){
-      const r=poseRest(look.spine2);
-      look.spine2.rotation.z=THREE.MathUtils.lerp(
-        look.spine2.rotation.z,
-        r.z+Math.sin(t*.85)*bodyAmp,
-        .035
-      );
-    }
-    if(look.neck){
-      const r=poseRest(look.neck);
-      look.neck.rotation.y=THREE.MathUtils.lerp(
-        look.neck.rotation.y,
-        r.y+Math.sin(t*.72)*headAmp*.45,
-        .04
-      );
-    }
-    if(look.head){
-      const r=poseRest(look.head);
-      look.head.rotation.y=THREE.MathUtils.lerp(
-        look.head.rotation.y,
-        r.y+Math.sin(t*.72+.35)*headAmp,
-        .045
-      );
-      look.head.rotation.x=THREE.MathUtils.lerp(
-        look.head.rotation.x,
-        r.x+Math.sin(t*.48)*headAmp*.22,
-        .04
-      );
-    }
-
-    if(talking && ctx.player?.root){
-      const wp=new THREE.Vector3();
-      const pp=new THREE.Vector3();
-      casinoWoman.getWorldPosition(wp);
-      ctx.player.root.getWorldPosition(pp);
-      const desired=
-        Math.atan2(pp.x-wp.x,pp.z-wp.z)+
-        poseState.manualYawOffset;
-
-      casinoWoman.rotation.y=
-        ctx.lerpAngle(
-          casinoWoman.rotation.y,
-          desired,
-          .035
-        );
-
-      const local=casinoWoman.worldToLocal(pp.clone());
-      const yaw=THREE.MathUtils.clamp(
-        Math.atan2(local.x,local.z),
-        -.42,
-        .42
-      );
-
-      if(look.neck){
-        const r=poseRest(look.neck);
-        look.neck.rotation.y=THREE.MathUtils.lerp(
-          look.neck.rotation.y,
-          r.y+yaw*.22+Math.sin(t*.72)*headAmp*.35,
-          .05
-        );
-      }
-      if(look.head){
-        const r=poseRest(look.head);
-        look.head.rotation.y=THREE.MathUtils.lerp(
-          look.head.rotation.y,
-          r.y+yaw*.50+Math.sin(t*.72+.35)*headAmp,
-          .055
-        );
-      }
-    }else if(!poseState.postTalkLatched){
-      casinoWoman.rotation.y=
-        ctx.lerpAngle(
-          casinoWoman.rotation.y,
-          poseState.baseYaw+poseState.manualYawOffset,
-          .012
-        );
-    }
-  };
-
-  const update=()=>{
-    if(
-      !casinoWoman ||
-      !ctx.player?.root ||
-      ctx.activeWorldZone!=="leftRoom"
-    ) return;
-
-    if(!look.ready) findBones();
-    if(!look.head) return;
-
-    const talking=
-      ctx.QUEST.dialogueActive &&
-      ctx.QUEST.dialogueSpeaker==="RECEPTIONIST";
-
-    applyApprovedPose(talking);
-  };
-
-  return {
-    load,
-    update,
-    getRoot:()=>casinoWoman
-  };
-}
 
 
 const CASINO_RECEPTIONIST_CONTROLLER=
@@ -8821,6 +6903,7 @@ const CASINO_RECEPTIONIST_CONTROLLER=
     scene,
     player,
     QUEST,
+    CASINO_MODEL_CONFIG,
     get activeWorldZone(){ return activeWorldZone; },
     loadGLBFromCandidates,
     cloneMaterials,
@@ -8833,152 +6916,22 @@ const CASINO_RECEPTIONIST_CONTROLLER=
 CASINO_RECEPTIONIST_CONTROLLER.load();
 
 
-const RECEPTION_EXCHANGE={
-  open:false,
-  selectedAmount:1
-};
 
-function refreshReceptionExchangeText(){
-  const box=document.getElementById("receptionExchangeText");
-  if(!box) return;
 
-  const amount=
-    Number(RECEPTION_EXCHANGE.selectedAmount)||1;
 
-  box.textContent=
-    `You have $${PLAYER_MONEY.cashDollars} and ${PLAYER_MONEY.coinCents}¢. `+
-    `Selected: $${amount} → ${amount*100}¢`;
-}
 
-function openReceptionExchange(){
-  const panel=document.getElementById("receptionExchangePanel");
-  if(!panel) return;
 
-  RECEPTION_EXCHANGE.open=true;
-  RECEPTION_EXCHANGE.selectedAmount=1;
 
-  document.querySelectorAll(".rexChoice").forEach(btn=>{
-    btn.classList.toggle(
-      "selected",
-      Number(btn.dataset.rex)===1
-    );
-  });
 
-  refreshReceptionExchangeText();
-  panel.classList.add("open");
-  panel.style.display="block";
 
-  if(pickupPrompt) pickupPrompt.style.display="none";
-  if(dialogue) dialogue.style.display="none";
-  if(dialogueActionHint) dialogueActionHint.style.display="none";
 
-  gameplayInputEnabled=false;
-}
 
-function closeReceptionExchange(){
-  const panel=document.getElementById("receptionExchangePanel");
 
-  RECEPTION_EXCHANGE.open=false;
-
-  if(panel){
-    panel.classList.remove("open");
-    panel.style.display="none";
-  }
-
-  if(dialogueActionHint){
-    dialogueActionHint.style.display="";
-  }
-
-  if(!QUEST.dialogueActive && !GLOBAL_DIALOGUE_LOCK.active){
-    gameplayInputEnabled=true;
-  }
-}
-
-function exchangeReceptionDollars(amount){
-  amount=Math.floor(Number(amount)||0);
-  if(amount<=0) return;
-
-  if(PLAYER_MONEY.cashDollars<amount){
-    closeReceptionExchange();
-
-    requestAnimationFrame(()=>{
-      questShowClue(
-        "NOT ENOUGH DOLLARS",
-        1800
-      );
-    });
-
-    return;
-  }
-
-  PLAYER_MONEY.cashDollars-=amount;
-  PLAYER_MONEY.coinCents+=amount*100;
-
-  renderInventoryMoney();
-
-  closeReceptionExchange();
-
-  requestAnimationFrame(()=>{
-    requestAnimationFrame(()=>{
-      questShowClue(
-        `MONEY CONVERTED · $${amount} → ${amount*100}¢`,
-        1900
-      );
-    });
-  });
-}
-
-function initReceptionExchangeUI(){
-  document.querySelectorAll(".rexChoice").forEach(btn=>{
-    if(btn.dataset.rexBound==="1") return;
-    btn.dataset.rexBound="1";
-
-    btn.addEventListener("click",e=>{
-      e.preventDefault();
-      e.stopPropagation();
-
-      const amount=Number(btn.dataset.rex)||1;
-      RECEPTION_EXCHANGE.selectedAmount=amount;
-
-      document.querySelectorAll(".rexChoice").forEach(other=>{
-        other.classList.toggle(
-          "selected",
-          other===btn
-        );
-      });
-
-      refreshReceptionExchangeText();
-    });
-  });
-
-  const cancel=document.getElementById("receptionExchangeClose");
-  if(cancel && cancel.dataset.rexBound!=="1"){
-    cancel.dataset.rexBound="1";
-    cancel.addEventListener("click",e=>{
-      e.preventDefault();
-      e.stopPropagation();
-      closeReceptionExchange();
-    });
-  }
-
-  const cont=document.getElementById("receptionExchangeContinue");
-  if(cont && cont.dataset.rexBound!=="1"){
-    cont.dataset.rexBound="1";
-    cont.addEventListener("click",e=>{
-      e.preventDefault();
-      e.stopPropagation();
-
-      exchangeReceptionDollars(
-        RECEPTION_EXCHANGE.selectedAmount
-      );
-    });
-  }
-}
 
 if(document.readyState==="loading"){
   document.addEventListener("DOMContentLoaded",initReceptionExchangeUI,{once:true});
 }else{
-  initReceptionExchangeUI();
+  
 }
 
 
@@ -9012,6 +6965,27 @@ addEventListener("keydown",e=>{
   }
 },true);
 
+const {
+  refreshReceptionExchangeText,
+  openReceptionExchange,
+  closeReceptionExchange,
+  exchangeReceptionDollars,
+  initReceptionExchangeUI
+}=createReceptionExchangeUI({
+  PLAYER_MONEY,
+  QUEST,
+  GLOBAL_DIALOGUE_LOCK,
+  renderInventoryMoney,
+  questShowClue,
+  get pickupPrompt(){ return pickupPrompt; },
+  get dialogue(){ return dialogue; },
+  get dialogueActionHint(){ return dialogueActionHint; },
+  get gameplayInputEnabled(){ return gameplayInputEnabled; },
+  set gameplayInputEnabled(v){ gameplayInputEnabled=!!v; }
+});
+
+initReceptionExchangeUI();
+
 function casinoReceptionistNear(){
   const casinoWoman=CASINO_RECEPTIONIST_CONTROLLER.getRoot();
   if(!casinoWoman || !player?.root || activeWorldZone!=="leftRoom") return false;
@@ -9021,6 +6995,27 @@ function casinoReceptionistNear(){
   return a.distanceTo(b)<=3.8;
 }
 
+
+const {
+  ensureJukeboxAudioElement,
+  updateJukeboxMenuStatus,
+  stopJukeboxMusic,
+  playJukeboxTrack,
+  refreshJukeboxTrackButtons,
+  setJukeboxMenuOpen,
+  initJukeboxMusicMenu,
+  updateJukeboxInteraction,
+  casinoJukeboxNear,
+  setJukeboxPower
+}=createJukeboxSystem({
+  THREE,
+  CASINO_MEDIA_RUNTIME,
+  uiNode,
+  get player(){ return player; },
+  get activeWorldZone(){ return activeWorldZone; }
+});
+
+initJukeboxMusicMenu();
 
 const CASINO_BOY={
   root:null,
@@ -9051,6 +7046,10 @@ const CASINO_BOY_CONTROLLER=
       putModelOnFloor,
       registerCasinoEditable,
       getRest,
+      smoothBoneTo,
+      CASINO_BOY_STANDARD_POSE,
+      CASINO_BOY_GESTURE_POSE,
+      CASINO_BOY_ANIM,
       onLoaded:()=>{ buildCasinoBettingSheet(); }
     },
     CASINO_BOY
@@ -9509,36 +7508,7 @@ const GAME_START_RETURN={
   playerPos:null,
   playerYaw:0
 };
-const SECURITY_TALK2={
-  active:false,
-  gestureStart:0,
-  panel:null,
-  readout:null,
-  agitation:{
-    level:0.84,
-    speed:0.74,
-    shoulders:{amount:0.34,axis:"z"},
-    forearms:{amount:0.82,axis:"z"},
-    hands:{amount:1.00,axis:"xyz"},
-    torso:{amount:0.26,axis:"z"},
-    neck:{amount:0.22,axis:"x"},
-    head:{amount:0.30,axis:"x"}
-  },
-  thumb:{
-    right_thumb_1:{x:-16,y:0,z:0},
-    right_thumb_2:{x:0,y:0,z:0},
-    right_thumb_3:{x:0,y:0,z:0},
-    right_thumb_4:{x:0,y:0,z:0}
-  },
-  target:{
-    leftArm:{x:73,y:8,z:7},
-    leftForeArm:{x:-5,y:0,z:79},
-    leftHand:{x:0,y:0,z:2},
-    rightArm:{x:58,y:0,z:-10},
-    rightForeArm:{x:3,y:0,z:-38},
-    rightHand:{x:13,y:-3,z:0}
-  }
-};
+
 
 const SECURITY_UNIFIED_TALK_PANEL={
   panel:null,
@@ -9547,313 +7517,9 @@ const SECURITY_UNIFIED_TALK_PANEL={
   mode:null
 };
 
-function getSecurityUnifiedTalkTarget(){
-
-  initSecurityOldTalkPanelTargets(questGetPolice());
-  return {
-    mode:"TALK",
-    source:SECURITY_OLD_TALK_PANEL.target,
-    degrees:false
-  };
-}
-
-function securityUnifiedGetDeg(obj,key,axis){
-  const v=obj?.[key]?.[axis] ?? 0;
-  return THREE.MathUtils.radToDeg(v);
-}
-
-function refreshSecurityUnifiedTalkPanel(){
-  const panel=SECURITY_UNIFIED_TALK_PANEL.panel;
-  if(!panel) return;
-
-  const info=getSecurityUnifiedTalkTarget();
-  const mode=info.mode;
-  const src=info.source;
-
-  if(SECURITY_UNIFIED_TALK_PANEL.mode!==mode){
-    SECURITY_UNIFIED_TALK_PANEL.mode=mode;
-
-    for(const [key,axes] of Object.entries(SECURITY_UNIFIED_TALK_PANEL.controls)){
-      for(const axis of ["x","y","z"]){
-        const control=axes[axis];
-        if(!control) continue;
-
-        const deg=securityUnifiedGetDeg(src,key,axis);
-        control.slider.value=String(Math.round(deg*10)/10);
-        control.value.textContent=`${Number(control.slider.value).toFixed(1)}°`;
-      }
-    }
-  }
-
-  const lines=[
-    `SECURITY LIVE TALK EDITOR · TALK`,
-    "Security TALK · used in every Security conversation"
-  ];
-
-  for(const key of [
-    "leftArm","leftForeArm","leftHand",
-    "rightArm","rightForeArm","rightHand"
-  ]){
-    lines.push(
-      `${key}: x ${securityUnifiedGetDeg(src,key,"x").toFixed(1)}° · `+
-      `y ${securityUnifiedGetDeg(src,key,"y").toFixed(1)}° · `+
-      `z ${securityUnifiedGetDeg(src,key,"z").toFixed(1)}°`
-    );
-  }
-
-  SECURITY_UNIFIED_TALK_PANEL.readout.textContent=lines.join("\n");
-}
 
 
-function hideAllSecurityContextPanels(){
-  if(SECURITY_OLD_TALK_PANEL?.panel){
-    SECURITY_OLD_TALK_PANEL.panel.style.setProperty("display","none","important");
-  }
-  if(SECURITY_FINAL_POSE_EDITOR?.panel){
-    SECURITY_FINAL_POSE_EDITOR.panel.style.setProperty("display","none","important");
-  }
-  if(SECURITY_TALK2?.panel){
-    SECURITY_TALK2.panel.style.setProperty("display","none","important");
-  }
-}
 
-const FINAL_SECURITY_DIALOGUE_FACING={
-  mode:"player",
-  active:false,
-  transitionStart:0,
-  initialized:false,
-  fromRootYaw:0,
-  fromNeckY:0,
-  fromHeadY:0,
-  fromSpineY:0,
-  returnComplete:false,
-  pendingConclude:false
-};
-
-function setFinalSecurityDialogueFacing(mode){
-  const state=FINAL_SECURITY_DIALOGUE_FACING;
-
-  state.mode=mode;
-  state.active=true;
-  state.transitionStart=performance.now();
-  state.returnComplete=false;
-  state.pendingConclude=false;
-
-  const security=questGetPolice?.();
-
-  if(security?.root){
-    const b=getBones(security);
-    const neckRest=getRest(security,b.neck);
-    const headRest=getRest(security,b.head);
-    const spineRest=getRest(security,b.spine);
-
-    state.fromRootYaw=security.root.rotation.y;
-    state.fromNeckY=b.neck?.rotation?.y ?? neckRest?.y ?? 0;
-    state.fromHeadY=b.head?.rotation?.y ?? headRest?.y ?? 0;
-    state.fromSpineY=b.spine?.rotation?.y ?? spineRest?.y ?? 0;
-    state.initialized=true;
-  }else{
-    state.initialized=false;
-  }
-}
-
-function updateFinalSecurityDialogueFacing(){
-  if(
-    !FINAL_SECURITY_DIALOGUE_FACING.active ||
-    !QUEST.dialogueActive ||
-    String(QUEST.dialogueSpeaker||"").toUpperCase()!=="SECURITY"
-  ){
-    return;
-  }
-
-  const security=questGetPolice?.();
-  const thief=getEditableThief?.();
-
-  if(!security?.root) return;
-
-  let target=null;
-
-  if(
-    FINAL_SECURITY_DIALOGUE_FACING.mode==="thief" &&
-    thief?.root?.visible
-  ){
-    target=thief.root;
-  }else if(player?.root){
-    target=player.root;
-  }
-
-  if(!target) return;
-
-  const dx=target.position.x-security.root.position.x;
-  const dz=target.position.z-security.root.position.z;
-
-  if(dx*dx+dz*dz<.0001) return;
-
-  const targetYaw=Math.atan2(dx,dz);
-  const b=getBones(security);
-
-  const neckRest=getRest(security,b.neck);
-  const headRest=getRest(security,b.head);
-  const spineRest=getRest(security,b.spine);
-
-  const state=FINAL_SECURITY_DIALOGUE_FACING;
-
-  if(!state.initialized){
-    state.initialized=true;
-    state.transitionStart=performance.now();
-    state.fromRootYaw=security.root.rotation.y;
-    state.fromNeckY=b.neck?.rotation?.y ?? neckRest?.y ?? 0;
-    state.fromHeadY=b.head?.rotation?.y ?? headRest?.y ?? 0;
-    state.fromSpineY=b.spine?.rotation?.y ?? spineRest?.y ?? 0;
-  }
-
-  const elapsed=(performance.now()-state.transitionStart)/1000;
-
-  const returningToPlayer=
-    FINAL_SECURITY_DIALOGUE_FACING.mode==="player";
-
-  const smoother01=(v)=>{
-    const t=THREE.MathUtils.clamp(v,0,1);
-    return t*t*t*(t*(t*6-15)+10);
-  };
-
-  const headT=returningToPlayer
-    ? smoother01(elapsed/1.65)
-    : smooth01(THREE.MathUtils.clamp(elapsed/1.55,0,1));
-
-  const neckT=returningToPlayer
-    ? smoother01((elapsed-.02)/1.85)
-    : smooth01(THREE.MathUtils.clamp((elapsed-.05)/1.35,0,1));
-
-  const spineT=returningToPlayer
-    ? smoother01((elapsed-.07)/2.00)
-    : smooth01(THREE.MathUtils.clamp((elapsed-.10)/1.30,0,1));
-
-  const rootT=returningToPlayer
-    ? smoother01((elapsed-.10)/2.15)
-    : smooth01(THREE.MathUtils.clamp((elapsed-.14)/1.45,0,1));
-
-  const fullRootDelta=
-    normalizeAngle(targetYaw-state.fromRootYaw);
-
-  const rootAmount=
-    FINAL_SECURITY_DIALOGUE_FACING.mode==="thief"
-      ? .42
-      : 1.00;
-
-  const desiredRootYaw=
-    state.fromRootYaw+
-    fullRootDelta*rootAmount;
-
-  const newRootYaw=
-    state.fromRootYaw+
-    normalizeAngle(desiredRootYaw-state.fromRootYaw)*rootT;
-
-  security.root.rotation.y=newRootYaw;
-
-  const localDelta=normalizeAngle(
-    targetYaw-newRootYaw
-  );
-
-  const clamped=THREE.MathUtils.clamp(
-    localDelta,
-    -.26,
-    .26
-  );
-
-  if(b.spine && spineRest){
-    const targetSpineY=
-      spineRest.y+
-      clamped*.10*spineT;
-
-    b.spine.rotation.y=THREE.MathUtils.lerp(
-      state.fromSpineY,
-      targetSpineY,
-      spineT*.68
-    );
-  }
-
-  if(b.neck && neckRest){
-    const targetNeckY=
-      neckRest.y+
-      clamped*.30*neckT;
-
-    b.neck.rotation.y=THREE.MathUtils.lerp(
-      state.fromNeckY,
-      targetNeckY,
-      neckT*.78
-    );
-  }
-
-  if(b.head && headRest){
-    const targetHeadY=
-      headRest.y+
-      clamped*.34*headT;
-
-    b.head.rotation.y=THREE.MathUtils.lerp(
-      state.fromHeadY,
-      targetHeadY,
-      headT*.75
-    );
-  }
-
-  if(
-    QUEST.dialogueActive &&
-    String(QUEST.dialogueSpeaker||"").toUpperCase()==="SECURITY" &&
-    b.head &&
-    headRest
-  ){
-    const talkNow=performance.now();
-
-    const lookingAtThief=
-      FINAL_SECURITY_DIALOGUE_FACING.active &&
-      FINAL_SECURITY_DIALOGUE_FACING.mode==="thief";
-
-    const talkNod=lookingAtThief
-      ? Math.sin(talkNow*.0027)*.011
-      : Math.sin(talkNow*.0064)*.028;
-
-    const currentYaw=b.head.rotation.y;
-    const currentRoll=b.head.rotation.z;
-
-    b.head.rotation.x=THREE.MathUtils.lerp(
-      b.head.rotation.x,
-      headRest.x+talkNod,
-      lookingAtThief ? .055 : .10
-    );
-
-    b.head.rotation.y=currentYaw;
-    b.head.rotation.z=currentRoll;
-  }
-
-  security.root.updateMatrixWorld(true);
-
-  if(returningToPlayer){
-    const finished=
-      headT>=.999 &&
-      neckT>=.999 &&
-      spineT>=.999 &&
-      rootT>=.999;
-
-    if(finished && !state.returnComplete){
-      state.returnComplete=true;
-
-      if(state.pendingConclude){
-        state.pendingConclude=false;
-        requestAnimationFrame(()=>{
-          if(QUEST.dialogueActive){
-            questAdvanceDialogue();
-          }
-        });
-      }
-    }
-  }
-}
-
-const FINAL_ARREST_FLOW={
-  active:false,
-  finished:false
-};
 function enforceFinalThiefVisible(){
   if(
     STOREKEEPER_FINAL?.policeSummoned &&
@@ -10140,6 +7806,73 @@ const STOREKEEPER_FINAL={
   policeSummoned:false,
   policeIntroDone:false
 };
+
+const {
+  FINAL_SECURITY_DIALOGUE_FACING,
+  FINAL_ARREST_FLOW,
+  getSecurityUnifiedTalkTarget,
+  securityUnifiedGetDeg,
+  refreshSecurityUnifiedTalkPanel,
+  hideAllSecurityContextPanels,
+  setFinalSecurityDialogueFacing,
+  updateFinalSecurityDialogueFacing,
+  SECURITY_POSE_EDITOR,
+  SECURITY_FINAL_POSE_EDITOR,
+  SECURITY_HEAD_SPEECH_STATE,
+  SECURITY_FINGER_STATE,
+  securityMirrorLeftFinalToRight,
+  cacheSecurityFinalPoseDefaults,
+  applyUserApprovedSecurityFinalPoseValues,
+  captureSecurityFinalPoseTransition,
+  getSecurityFinalTargetEuler,
+  applySecurityFinalPose,
+  refreshSecurityFinalPoseReadout,
+  makeSecurityPanelCollapsible,
+  ensureSecurityFinalPoseEditor,
+  cacheSecurityPoseEditorBones,
+  updateSecurityPoseEditor,
+  getSecurityHeadSpeechState,
+  animateSecurityHeadSpeech,
+  cleanBoneName,
+  getFingerSegment,
+  isSecurityFingerBone,
+  getSecurityFingerState,
+  getMainFingerCurl,
+  animateSecurityFingers,
+  SECURITY_OLD_TALK_PANEL,
+  initSecurityOldTalkPanelTargets,
+  securityAddAgitationControls,
+  refreshSecurityOldTalkPanel,
+  ensureSecurityOldTalkPanel,
+  updateSecurityOldTalkPanel,
+  mirrorSecurityTalkBoneWorld,
+  SECURITY_LOWER_BODY_EDITOR,
+  SECURITY_TURN_POSE_EDITOR,
+  cacheSecurityLowerBodyEditor,
+  applySecurityLowerBodyEditor,
+  refreshSecurityLowerBodyEditorReadout,
+  ensureSecurityLowerBodyEditor,
+  updateSecurityLowerBodyEditor
+}=createSecurityEditors({
+  THREE,
+  GLOBAL_DIALOGUE_LOCK,
+  QUEST,
+  SECURITY_POST_CASE_HOME_LOCK,
+  SECURITY_TALK2,
+  SECURITY_UNIFIED_TALK_PANEL,
+  STOREKEEPER_FINAL,
+  getBones,
+  getEditableThief,
+  getRest,
+  keys,
+  normalizeAngle,
+  player,
+  questAdvanceDialogue,
+  questGetPolice,
+  smooth01,
+  smoothBoneTo
+});
+
 const POLICE_RADIO={
   owned:false,
   callReady:false,
@@ -10199,20 +7932,7 @@ function updateStorekeeperQuestPresence(){
 
 let THIEF_HANDCUFFS_APPLIED=false;
 
-const THIEF_HANDCUFF_EDITOR={
-  panel:null,
-  readout:null,
-  bones:{},
-  rest:{},
-  offsets:{
-    leftArm:{x:-17,y:0,z:-28},
-    rightArm:{x:-23,y:0,z:28},
-    leftForeArm:{x:75,y:-18,z:20},
-    rightForeArm:{x:72,y:18,z:-20},
-    leftHand:{x:0,y:-18,z:8},
-    rightHand:{x:0,y:18,z:-8}
-  }
-};
+
 
 function cacheThiefHandcuffBones(){
   const toxic=getEditableThief();
@@ -10360,26 +8080,7 @@ function applyThiefHandcuffPose(){
   updateThiefHandcuffEditor();
 }
 
-const FINAL_SCENE_LOCKED_LAYOUT={
-  player:{
-    x:-51.235,
-    y:0.135,
-    z:86.146,
-    yaw:-38.0
-  },
-  security:{
-    x:-52.8,
-    y:0.05,
-    z:89.05,
-    yaw:157.4
-  },
-  thief:{
-    x:-54.05,
-    y:0.05,
-    z:88.5,
-    yaw:138.3
-  }
-};
+
 
 function applyLockedFinalSceneLayout(){
   const security=questGetPolice?.();
@@ -10909,41 +8610,41 @@ function applyClawLeftHandPose(c,dt=.016){
 
     if(b.leftShoulder){
       setPlayerBoneAxisRotation(
-        c,state,b.leftShoulder,PLAYER_AXIS_RIGHT,D(-3.0)
+        c,state,b.leftShoulder,CORE_BONE_AXIS_RIGHT,D(-3.0)
       );
       addPlayerBoneAxisRotation(
-        c,b.leftShoulder,PLAYER_AXIS_UP,D(-1.5)
+        c,b.leftShoulder,CORE_BONE_AXIS_UP,D(-1.5)
       );
     }
 
     setPlayerBoneAxisRotation(
-      c,state,b.leftArm,PLAYER_AXIS_RIGHT,D(CLAW_LEFT_HAND_POSE.armX)
+      c,state,b.leftArm,CORE_BONE_AXIS_RIGHT,D(CLAW_LEFT_HAND_POSE.armX)
     );
     addPlayerBoneAxisRotation(
-      c,b.leftArm,PLAYER_AXIS_UP,D(CLAW_LEFT_HAND_POSE.armY)
+      c,b.leftArm,CORE_BONE_AXIS_UP,D(CLAW_LEFT_HAND_POSE.armY)
     );
     addPlayerBoneAxisRotation(
-      c,b.leftArm,PLAYER_AXIS_FORWARD,D(CLAW_LEFT_HAND_POSE.armZ)
+      c,b.leftArm,CORE_BONE_AXIS_FORWARD,D(CLAW_LEFT_HAND_POSE.armZ)
     );
 
     setPlayerBoneAxisRotation(
-      c,state,b.leftForeArm,PLAYER_AXIS_RIGHT,D(CLAW_LEFT_HAND_POSE.foreX)
+      c,state,b.leftForeArm,CORE_BONE_AXIS_RIGHT,D(CLAW_LEFT_HAND_POSE.foreX)
     );
     addPlayerBoneAxisRotation(
-      c,b.leftForeArm,PLAYER_AXIS_UP,D(CLAW_LEFT_HAND_POSE.foreY)
+      c,b.leftForeArm,CORE_BONE_AXIS_UP,D(CLAW_LEFT_HAND_POSE.foreY)
     );
     addPlayerBoneAxisRotation(
-      c,b.leftForeArm,PLAYER_AXIS_FORWARD,D(CLAW_LEFT_HAND_POSE.foreZ)
+      c,b.leftForeArm,CORE_BONE_AXIS_FORWARD,D(CLAW_LEFT_HAND_POSE.foreZ)
     );
 
     setPlayerBoneAxisRotation(
-      c,state,b.leftHand,PLAYER_AXIS_RIGHT,D(CLAW_LEFT_HAND_POSE.handX)
+      c,state,b.leftHand,CORE_BONE_AXIS_RIGHT,D(CLAW_LEFT_HAND_POSE.handX)
     );
     addPlayerBoneAxisRotation(
-      c,b.leftHand,PLAYER_AXIS_UP,D(CLAW_LEFT_HAND_POSE.handY)
+      c,b.leftHand,CORE_BONE_AXIS_UP,D(CLAW_LEFT_HAND_POSE.handY)
     );
     addPlayerBoneAxisRotation(
-      c,b.leftHand,PLAYER_AXIS_FORWARD,D(CLAW_LEFT_HAND_POSE.handZ)
+      c,b.leftHand,CORE_BONE_AXIS_FORWARD,D(CLAW_LEFT_HAND_POSE.handZ)
     );
 
     for(const f of (state.fingers||[])){
@@ -10959,7 +8660,7 @@ function applyClawLeftHandPose(c,dt=.016){
         c,
         state,
         f.bone,
-        PLAYER_AXIS_RIGHT,
+        CORE_BONE_AXIS_RIGHT,
         (isThumb?.25:.42)*CLAW_LEFT_HAND_POSE.fingerCurl*gain
       );
     }
@@ -11333,45 +9034,45 @@ function updateCasinoClawSoftRotation(dt=.016){
 
     restoreAndAdd(
       feet.leftUpLeg,
-      PLAYER_AXIS_RIGHT,
+      CORE_BONE_AXIS_RIGHT,
       D(1.15)*step*dir
     );
     restoreAndAdd(
       feet.rightUpLeg,
-      PLAYER_AXIS_RIGHT,
+      CORE_BONE_AXIS_RIGHT,
       D(-1.35)*step*dir
     );
 
     restoreAndAdd(
       feet.leftKnee,
-      PLAYER_AXIS_RIGHT,
+      CORE_BONE_AXIS_RIGHT,
       D(.70)*step
     );
     restoreAndAdd(
       feet.rightKnee,
-      PLAYER_AXIS_RIGHT,
+      CORE_BONE_AXIS_RIGHT,
       D(.55)*step
     );
 
     restoreAndAdd(
       feet.leftFoot,
-      PLAYER_AXIS_UP,
+      CORE_BONE_AXIS_UP,
       D(-.85)*step*dir
     );
     restoreAndAdd(
       feet.rightFoot,
-      PLAYER_AXIS_UP,
+      CORE_BONE_AXIS_UP,
       D(.95)*step*dir
     );
 
     restoreAndAdd(
       feet.leftFoot,
-      PLAYER_AXIS_FORWARD,
+      CORE_BONE_AXIS_FORWARD,
       D(.40)*step
     );
     restoreAndAdd(
       feet.rightFoot,
-      PLAYER_AXIS_FORWARD,
+      CORE_BONE_AXIS_FORWARD,
       D(-.30)*step
     );
   }
@@ -11898,24 +9599,8 @@ function refreshGardenFlowerFenceEditor(){
     `length=${data.length.toFixed(3)}`;
 }
 gardenBuild("buildGardenFlowerZoneFences");
-const RIGHT_ROSE_GROUP_EDITOR={
-  x:1.000,
-  y:0,
-  z:0,
-  scaleX:1,
-  scaleY:1,
-  scaleZ:1,
-  moveStep:.10,
-  scaleStep:.025
-};
-const LEFT_ROSE_GROUP_MIRROR={
-  x:-1.000,
-  y:0,
-  z:0,
-  scaleX:1,
-  scaleY:1,
-  scaleZ:1
-};
+
+
 function refreshRightRoseGroupEditor(){
   const read=document.getElementById("rightRoseGroupRead");
   if(!read) return;
@@ -12319,985 +10004,6 @@ function getBones(c){
   };
 }
 
-const SECURITY_POSE_EDITOR={
-  panel:null,
-  readout:null,
-  bones:{},
-  rest:{},
-  enabled:true,
-  wasTalking:false,
-  returnActive:false,
-  returnStart:0,
-  returnDuration:1600,
-  returnFrom:{},
-  rightNeutralAfterTalk:false,
-  rightReturnActive:false,
-  rightReturnStart:0,
-  rightReturnDuration:1300,
-  rightReturnFrom:{},
-  offsets:{
-    leftShoulder:{x:0,y:0,z:0},
-    leftArm:{x:0,y:10,z:0},
-    leftForeArm:{x:0,y:22,z:7},
-    leftHand:{x:0,y:0,z:0},
-    rightShoulder:{x:0,y:0,z:0},
-    rightArm:{x:14.5,y:0,z:0},
-    rightForeArm:{x:0,y:0,z:0},
-    rightHand:{x:0,y:0,z:0}
-  },
-  fingerOffsets:{
-    left_thumb_1:{x:-11,y:0,z:-21},
-    left_thumb_2:{x:9,y:0,z:0}
-  }
-};
-
-const SECURITY_FINAL_POSE_EDITOR={
-  panel:null,
-  readout:null,
-  transitionActive:false,
-  transitionStart:0,
-  transitionDuration:1600,
-  transitionFrom:{},
-  body:{
-    leftShoulder:{x:0,y:0,z:0},
-    leftArm:{x:0,y:10,z:0},
-    leftForeArm:{x:0,y:22,z:7},
-    leftHand:{x:0,y:0,z:0},
-
-    rightShoulder:{x:0,y:0,z:0},
-    rightArm:{x:0,y:-10,z:0},
-    rightForeArm:{x:0,y:-22,z:-7},
-    rightHand:{x:0,y:0,z:0}
-  },
-  fingers:{}
-};
-
-function securityMirrorLeftFinalToRight(){
-  const security=questGetPolice();
-  if(!security?.root) return;
-
-  if(!SECURITY_POSE_EDITOR.bones.leftArm){
-    cacheSecurityPoseEditorBones();
-  }
-
-  const b=SECURITY_FINAL_POSE_EDITOR.body;
-  const bones=SECURITY_POSE_EDITOR.bones;
-  const rest=SECURITY_POSE_EDITOR.rest;
-
-  const pairs=[
-    ["leftShoulder","rightShoulder"],
-    ["leftArm","rightArm"],
-    ["leftForeArm","rightForeArm"],
-    ["leftHand","rightHand"]
-  ];
-
-  const touched=new Set();
-  for(const [l,r] of pairs){
-    if(bones[l]) touched.add(bones[l]);
-    if(bones[r]) touched.add(bones[r]);
-  }
-
-  const saved=[];
-  for(const bone of touched){
-    saved.push({
-      bone,
-      quat:bone.quaternion.clone()
-    });
-  }
-
-  try{
-
-    for(const [leftKey] of pairs){
-      const bone=bones[leftKey];
-      const r=rest[leftKey];
-      const o=b[leftKey];
-      if(!bone || !r || !o) continue;
-
-      bone.rotation.set(
-        r.x+THREE.MathUtils.degToRad(o.x||0),
-        r.y+THREE.MathUtils.degToRad(o.y||0),
-        r.z+THREE.MathUtils.degToRad(o.z||0),
-        bone.rotation.order
-      );
-      bone.updateMatrix();
-    }
-
-    security.root.updateMatrixWorld(true);
-
-    const rootRot=new THREE.Matrix4().extractRotation(security.root.matrixWorld);
-    const invRootRot=rootRot.clone().invert();
-
-    const reflectX=new THREE.Matrix4().makeScale(-1,1,1);
-
-    const wrapPi=(a)=>{
-      a=(a+Math.PI)%(Math.PI*2);
-      if(a<0) a+=Math.PI*2;
-      return a-Math.PI;
-    };
-
-    for(const [leftKey,rightKey] of pairs){
-      const leftBone=bones[leftKey];
-      const rightBone=bones[rightKey];
-      const rightRest=rest[rightKey];
-      if(!leftBone || !rightBone || !rightRest) continue;
-
-      security.root.updateMatrixWorld(true);
-
-      const leftWorldRot=
-        new THREE.Matrix4().extractRotation(leftBone.matrixWorld);
-
-      const leftCharacterRot=
-        invRootRot.clone().multiply(leftWorldRot);
-
-      const mirroredCharacterRot=
-        reflectX.clone()
-          .multiply(leftCharacterRot)
-          .multiply(reflectX);
-
-      const desiredWorldRot=
-        rootRot.clone().multiply(mirroredCharacterRot);
-
-      const parentWorldRot=
-        new THREE.Matrix4().extractRotation(rightBone.parent.matrixWorld);
-      const desiredLocalRot=
-        parentWorldRot.clone().invert().multiply(desiredWorldRot);
-
-      const targetQuat=
-        new THREE.Quaternion().setFromRotationMatrix(desiredLocalRot);
-
-      const targetEuler=
-        new THREE.Euler().setFromQuaternion(
-          targetQuat,
-          rightBone.rotation.order
-        );
-
-      b[rightKey]={
-        x:THREE.MathUtils.radToDeg(
-          wrapPi(targetEuler.x-rightRest.x)
-        ),
-        y:THREE.MathUtils.radToDeg(
-          wrapPi(targetEuler.y-rightRest.y)
-        ),
-        z:THREE.MathUtils.radToDeg(
-          wrapPi(targetEuler.z-rightRest.z)
-        )
-      };
-
-      rightBone.rotation.copy(targetEuler);
-      rightBone.updateMatrix();
-      security.root.updateMatrixWorld(true);
-    }
-  } finally {
-
-    for(const item of saved){
-      item.bone.quaternion.copy(item.quat);
-      item.bone.updateMatrix();
-    }
-    security.root.updateMatrixWorld(true);
-  }
-
-  for(const [key,v] of Object.entries(SECURITY_POSE_EDITOR.fingerOffsets)){
-    if(!key.startsWith("left_")) continue;
-    const rightKey="right_"+key.slice(5);
-    if(!bones[rightKey]) continue;
-
-    SECURITY_FINAL_POSE_EDITOR.fingers[rightKey]={
-      x:v.x||0,
-      y:-(v.y||0),
-      z:-(v.z||0)
-    };
-  }
-}
-function cacheSecurityFinalPoseDefaults(){
-  if(!SECURITY_POSE_EDITOR.bones.leftArm){
-    cacheSecurityPoseEditorBones();
-  }
-
-  for(const key of ["leftShoulder","leftArm","leftForeArm","leftHand"]){
-    const v=SECURITY_POSE_EDITOR.offsets[key] || {x:0,y:0,z:0};
-    SECURITY_FINAL_POSE_EDITOR.body[key]={x:v.x||0,y:v.y||0,z:v.z||0};
-  }
-
-  for(const [key,v] of Object.entries(SECURITY_POSE_EDITOR.fingerOffsets)){
-    if(!key.startsWith("left_")) continue;
-    SECURITY_FINAL_POSE_EDITOR.fingers[key]={
-      x:v.x||0,
-      y:v.y||0,
-      z:v.z||0
-    };
-  }
-
-  securityMirrorLeftFinalToRight();
-  applyUserApprovedSecurityFinalPoseValues();
-}
-
-function applyUserApprovedSecurityFinalPoseValues(){
-  const b=SECURITY_FINAL_POSE_EDITOR.body;
-  const f=SECURITY_FINAL_POSE_EDITOR.fingers;
-
-  b.leftShoulder={x:0,y:1,z:-5};
-  b.leftArm={x:0,y:3,z:0};
-  b.leftForeArm={x:0,y:22,z:7};
-  b.leftHand={x:0,y:0,z:0};
-
-  b.rightShoulder={x:-5,y:1,z:9};
-  b.rightArm={
-    x:15.469860468532177,
-    y:4.323944878270592,
-    z:18.907607239317095
-  };
-  b.rightForeArm={
-    x:15.469860468532229,
-    y:52.484513367006954,
-    z:37.404229122638775
-  };
-  b.rightHand={
-    x:-5.852554118987924,
-    y:-11.125095166644414,
-    z:30.58354829751882
-  };
-
-  for(const key of Object.keys(f)){
-    f[key]={x:0,y:0,z:0};
-  }
-
-  f.left_thumb_1={x:-11,y:0,z:-21};
-  f.left_thumb_2={x:9,y:0,z:0};
-
-  f.right_thumb_1={x:-11,y:0,z:21};
-  f.right_thumb_2={x:9,y:0,z:0};
-}
-
-function captureSecurityFinalPoseTransition(){
-  if(!SECURITY_POSE_EDITOR.bones.leftArm){
-    cacheSecurityPoseEditorBones();
-  }
-
-  SECURITY_FINAL_POSE_EDITOR.transitionFrom={};
-
-  for(const key of Object.keys(SECURITY_FINAL_POSE_EDITOR.body)){
-    const bone=SECURITY_POSE_EDITOR.bones[key];
-    if(bone){
-      SECURITY_FINAL_POSE_EDITOR.transitionFrom[key]=bone.rotation.clone();
-    }
-  }
-
-  for(const key of Object.keys(SECURITY_FINAL_POSE_EDITOR.fingers)){
-    const bone=SECURITY_POSE_EDITOR.bones[key];
-    if(bone){
-      SECURITY_FINAL_POSE_EDITOR.transitionFrom[key]=bone.rotation.clone();
-    }
-  }
-
-  SECURITY_FINAL_POSE_EDITOR.transitionStart=performance.now();
-  SECURITY_FINAL_POSE_EDITOR.transitionActive=true;
-}
-
-function getSecurityFinalTargetEuler(key,offset){
-  const rest=SECURITY_POSE_EDITOR.rest[key];
-  if(!rest || !offset) return null;
-
-  return new THREE.Euler(
-    rest.x+THREE.MathUtils.degToRad(offset.x||0),
-    rest.y+THREE.MathUtils.degToRad(offset.y||0),
-    rest.z+THREE.MathUtils.degToRad(offset.z||0)
-  );
-}
-
-function applySecurityFinalPose(){
-  const security=questGetPolice();
-  if(!security?.root) return;
-
-  if(!SECURITY_POSE_EDITOR.bones.leftArm){
-    cacheSecurityPoseEditorBones();
-  }
-
-  const raw=SECURITY_FINAL_POSE_EDITOR.transitionActive
-    ? THREE.MathUtils.clamp(
-        (performance.now()-SECURITY_FINAL_POSE_EDITOR.transitionStart)/
-        Math.max(1,SECURITY_FINAL_POSE_EDITOR.transitionDuration),
-        0,
-        1
-      )
-    : 1;
-
-  const t=raw*raw*(3-2*raw);
-
-  const applyOne=(key,offset)=>{
-    const bone=SECURITY_POSE_EDITOR.bones[key];
-    const target=getSecurityFinalTargetEuler(key,offset);
-    if(!bone || !target) return;
-
-    if(SECURITY_FINAL_POSE_EDITOR.transitionActive){
-      const from=
-        SECURITY_FINAL_POSE_EDITOR.transitionFrom[key] ||
-        bone.rotation;
-
-      bone.rotation.set(
-        THREE.MathUtils.lerp(from.x,target.x,t),
-        THREE.MathUtils.lerp(from.y,target.y,t),
-        THREE.MathUtils.lerp(from.z,target.z,t)
-      );
-    }else{
-      bone.rotation.copy(target);
-    }
-  };
-
-  for(const [key,offset] of Object.entries(SECURITY_FINAL_POSE_EDITOR.body)){
-    applyOne(key,offset);
-  }
-
-  for(const [key,offset] of Object.entries(SECURITY_FINAL_POSE_EDITOR.fingers)){
-    applyOne(key,offset);
-  }
-
-  security.root.updateMatrixWorld(true);
-
-  if(raw>=1){
-    SECURITY_FINAL_POSE_EDITOR.transitionActive=false;
-    SECURITY_FINAL_POSE_EDITOR.transitionFrom={};
-  }
-}
-
-function refreshSecurityFinalPoseReadout(){
-  const read=SECURITY_FINAL_POSE_EDITOR.readout;
-  if(!read) return;
-
-  const lines=["SECURITY FINAL POSE · AFTER TALK"];
-  for(const [key,v] of Object.entries(SECURITY_FINAL_POSE_EDITOR.body)){
-    lines.push(`${key}: x ${v.x}° · y ${v.y}° · z ${v.z}°`);
-  }
-
-  lines.push("");
-  lines.push("FINGERS / PHALANGES");
-
-  for(const key of Object.keys(SECURITY_FINAL_POSE_EDITOR.fingers).sort()){
-    const v=SECURITY_FINAL_POSE_EDITOR.fingers[key];
-    lines.push(`${key}: x ${v.x}° · y ${v.y}° · z ${v.z}°`);
-  }
-
-  read.textContent=lines.join("\n");
-}
-
-function makeSecurityPanelCollapsible(panel,titleEl,storageKey){
-  if(!panel || panel.dataset.collapsibleReady==="1") return;
-  panel.dataset.collapsibleReady="1";
-
-  const toggle=document.createElement("button");
-  toggle.type="button";
-  toggle.textContent="−";
-  toggle.title="Riduci / apri pannello";
-
-  Object.assign(toggle.style,{
-    float:"right",
-    width:"28px",
-    height:"24px",
-    marginLeft:"8px",
-    padding:"0",
-    border:"1px solid rgba(255,255,255,.22)",
-    borderRadius:"6px",
-    background:"rgba(255,255,255,.08)",
-    color:"#fff",
-    cursor:"pointer",
-    font:"900 16px/20px Arial"
-  });
-
-  titleEl.prepend(toggle);
-
-  const body=document.createElement("div");
-  body.className="securityPanelCollapsibleBody";
-
-  while(titleEl.nextSibling){
-    body.appendChild(titleEl.nextSibling);
-  }
-  panel.appendChild(body);
-
-  let collapsed=false;
-
-  const setCollapsed=(value)=>{
-    collapsed=!!value;
-    body.style.display=collapsed ? "none" : "";
-    toggle.textContent=collapsed ? "+" : "−";
-    toggle.title=collapsed ? "Apri pannello" : "Riduci pannello";
-
-    panel.style.width=collapsed ? "170px" : "";
-    panel.style.maxHeight=collapsed ? "38px" : "";
-
-    try{
-      localStorage.setItem(storageKey,collapsed ? "1" : "0");
-    }catch(e){}
-  };
-
-  toggle.addEventListener("click",(e)=>{
-    e.preventDefault();
-    e.stopPropagation();
-    setCollapsed(!collapsed);
-  });
-
-  titleEl.style.cursor="pointer";
-  titleEl.addEventListener("click",(e)=>{
-    if(e.target===toggle) return;
-    setCollapsed(!collapsed);
-  });
-
-  try{
-    collapsed=localStorage.getItem(storageKey)==="1";
-  }catch(e){}
-
-  setCollapsed(collapsed);
-}
-
-function ensureSecurityFinalPoseEditor(){
-  if(SECURITY_FINAL_POSE_EDITOR.panel){
-    return SECURITY_FINAL_POSE_EDITOR.panel;
-  }
-
-  cacheSecurityFinalPoseDefaults();
-
-  const panel=document.createElement("div");
-  panel.id="securityFinalPoseEditor";
-
-  Object.assign(panel.style,{
-    position:"fixed",
-    right:"18px",
-    top:"18px",
-    width:"285px",
-    maxHeight:"64vh",
-    overflowY:"auto",
-    zIndex:"24650",
-    display:"none",
-    padding:"13px",
-    borderRadius:"11px",
-    background:"rgba(7,10,16,.97)",
-    border:"1px solid rgba(112,184,255,.36)",
-    color:"#fff",
-    font:"12px Arial,sans-serif",
-    boxShadow:"0 14px 38px rgba(0,0,0,.48)"
-  });
-
-  const title=document.createElement("div");
-  title.textContent="SECURITY FINAL POSE";
-  Object.assign(title.style,{
-    font:"900 13px Arial,sans-serif",
-    letterSpacing:".10em",
-    marginBottom:"6px"
-  });
-  panel.appendChild(title);
-
-  const subtitle=document.createElement("div");
-  subtitle.textContent=
-    "Si apre solo dopo il TALK. Modifica la posa finale in tempo reale.";
-  Object.assign(subtitle.style,{
-    color:"rgba(255,255,255,.66)",
-    fontSize:"10px",
-    lineHeight:"1.4",
-    marginBottom:"9px"
-  });
-  panel.appendChild(subtitle);
-
-  const read=document.createElement("pre");
-  Object.assign(read.style,{
-    whiteSpace:"pre-wrap",
-    margin:"0 0 7px",
-    padding:"6px",
-    maxHeight:"92px",
-    overflowY:"auto",
-    borderRadius:"6px",
-    background:"rgba(255,255,255,.045)",
-    color:"rgba(255,255,255,.70)",
-    font:"9px/1.28 monospace"
-  });
-  panel.appendChild(read);
-  SECURITY_FINAL_POSE_EDITOR.readout=read;
-
-  const makeAxisControls=(container,key,targetObject,min=-160,max=160)=>{
-    const h=document.createElement("div");
-    h.textContent=key
-      .replace(/([A-Z])/g," $1")
-      .replace(/^./,c=>c.toUpperCase());
-    Object.assign(h.style,{
-      marginTop:"8px",
-      paddingTop:"7px",
-      borderTop:"1px solid rgba(255,255,255,.08)",
-      fontWeight:"900",
-      fontSize:"10px",
-      letterSpacing:".07em"
-    });
-    container.appendChild(h);
-
-    for(const axis of ["x","y","z"]){
-      const row=document.createElement("div");
-      Object.assign(row.style,{
-        display:"grid",
-        gridTemplateColumns:"18px 1fr 48px",
-        gap:"6px",
-        alignItems:"center",
-        margin:"4px 0"
-      });
-
-      const label=document.createElement("span");
-      label.textContent=axis.toUpperCase();
-
-      const slider=document.createElement("input");
-      slider.type="range";
-      slider.min=String(min);
-      slider.max=String(max);
-      slider.step="1";
-      slider.value=String(targetObject[key][axis]||0);
-
-      const value=document.createElement("span");
-      value.textContent=`${slider.value}°`;
-      value.style.textAlign="right";
-
-      slider.addEventListener("input",()=>{
-        targetObject[key][axis]=Number(slider.value);
-        value.textContent=`${slider.value}°`;
-
-        SECURITY_FINAL_POSE_EDITOR.transitionActive=false;
-        applySecurityFinalPose();
-        refreshSecurityFinalPoseReadout();
-      });
-
-      row.append(label,slider,value);
-      container.appendChild(row);
-    }
-  };
-
-  const upper=document.createElement("div");
-  panel.appendChild(upper);
-
-  for(const key of [
-    "leftShoulder","leftArm","leftForeArm","leftHand",
-    "rightShoulder","rightArm","rightForeArm","rightHand"
-  ]){
-    makeAxisControls(
-      upper,
-      key,
-      SECURITY_FINAL_POSE_EDITOR.body,
-      -160,
-      160
-    );
-  }
-
-  const addFingerDetails=(side)=>{
-    const details=document.createElement("details");
-    details.style.marginTop="10px";
-
-    const summary=document.createElement("summary");
-    summary.textContent=`${side.toUpperCase()} FINGERS / PHALANGES`;
-    Object.assign(summary.style,{
-      cursor:"pointer",
-      fontWeight:"900",
-      letterSpacing:".06em"
-    });
-    details.appendChild(summary);
-
-    for(const key of Object.keys(SECURITY_FINAL_POSE_EDITOR.fingers)
-      .filter(k=>k.startsWith(side+"_"))
-      .sort()){
-      makeAxisControls(
-        details,
-        key,
-        SECURITY_FINAL_POSE_EDITOR.fingers,
-        -120,
-        120
-      );
-    }
-
-    panel.appendChild(details);
-  };
-
-  addFingerDetails("left");
-  addFingerDetails("right");
-
-  const mirror=document.createElement("button");
-  mirror.textContent="MIRROR LEFT → RIGHT · GLB AXES";
-  Object.assign(mirror.style,{
-    width:"100%",
-    marginTop:"10px",
-    padding:"8px",
-    cursor:"pointer",
-    fontWeight:"900"
-  });
-  mirror.addEventListener("click",()=>{
-    securityMirrorLeftFinalToRight();
-
-    panel.remove();
-    SECURITY_FINAL_POSE_EDITOR.panel=null;
-    SECURITY_FINAL_POSE_EDITOR.readout=null;
-
-    ensureSecurityFinalPoseEditor();
-    SECURITY_FINAL_POSE_EDITOR.panel.style.display="block";
-    SECURITY_FINAL_POSE_EDITOR.transitionActive=false;
-    applySecurityFinalPose();
-  });
-  panel.appendChild(mirror);
-
-  const print=document.createElement("button");
-  print.textContent="PRINT / COPY FINAL POSE";
-  Object.assign(print.style,{
-    width:"100%",
-    marginTop:"6px",
-    padding:"8px",
-    cursor:"pointer",
-    fontWeight:"900"
-  });
-  print.addEventListener("click",async()=>{
-    const output=
-      "SECURITY FINAL POSE AFTER TALK\n"+
-      JSON.stringify(SECURITY_FINAL_POSE_EDITOR.body,null,2)+
-      "\n\nSECURITY FINAL FINGERS / PHALANGES\n"+
-      JSON.stringify(SECURITY_FINAL_POSE_EDITOR.fingers,null,2);
-
-    console.log(output);
-
-    try{
-      await navigator.clipboard.writeText(output);
-      print.textContent="COPIED + PRINTED";
-    }catch(e){
-      print.textContent="PRINTED TO CONSOLE";
-    }
-
-    setTimeout(()=>{
-      print.textContent="PRINT / COPY FINAL POSE";
-    },1400);
-  });
-  panel.appendChild(print);
-
-  makeSecurityPanelCollapsible(
-    panel,
-    title,
-    "securityFinalPosePanelCollapsed"
-  );
-
-  document.body.appendChild(panel);
-  SECURITY_FINAL_POSE_EDITOR.panel=panel;
-
-  refreshSecurityFinalPoseReadout();
-  return panel;
-}
-
-function cacheSecurityPoseEditorBones(){
-  const security=questGetPolice();
-  if(!security?.root) return false;
-
-  const map={};
-
-  security.root.traverse(o=>{
-    if(!o?.isBone) return;
-
-    const n=String(o.name||"").toLowerCase();
-
-    if(n.includes("leftshoulder")){
-      map.leftShoulder=o;
-    }else if(n.includes("leftarm") && !n.includes("fore")){
-      map.leftArm=o;
-    }else if(n.includes("leftforearm")){
-      map.leftForeArm=o;
-    }else if(
-      n.includes("lefthand") &&
-      !n.includes("thumb") &&
-      !n.includes("index") &&
-      !n.includes("middle") &&
-      !n.includes("ring") &&
-      !n.includes("pinky")
-    ){
-      map.leftHand=o;
-    }else if(n.includes("rightshoulder")){
-      map.rightShoulder=o;
-    }else if(n.includes("rightarm") && !n.includes("fore")){
-      map.rightArm=o;
-    }else if(n.includes("rightforearm")){
-      map.rightForeArm=o;
-    }else if(
-      n.includes("righthand") &&
-      !n.includes("thumb") &&
-      !n.includes("index") &&
-      !n.includes("middle") &&
-      !n.includes("ring") &&
-      !n.includes("pinky")
-    ){
-      map.rightHand=o;
-    }
-  });
-
-  security.root.traverse(o=>{
-    if(!o?.isBone) return;
-    const clean=String(o.name||"")
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g,"");
-
-    const match=clean.match(
-      /(left|right)hand(thumb|index|middle|ring|pinky|little)([1-4])/
-    );
-    if(!match) return;
-
-    const side=match[1];
-    const finger=match[2]==="little" ? "pinky" : match[2];
-    const segment=match[3];
-    const key=`${side}_${finger}_${segment}`;
-
-    map[key]=o;
-
-    if(!SECURITY_POSE_EDITOR.fingerOffsets[key]){
-      SECURITY_POSE_EDITOR.fingerOffsets[key]={x:0,y:0,z:0};
-    }
-  });
-
-  SECURITY_POSE_EDITOR.bones=map;
-
-  for(const key of Object.keys(SECURITY_POSE_EDITOR.offsets)){
-    const bone=map[key];
-    if(!bone) continue;
-
-    if(!SECURITY_POSE_EDITOR.rest[key]){
-      SECURITY_POSE_EDITOR.rest[key]=bone.rotation.clone();
-    }
-  }
-
-  for(const key of Object.keys(SECURITY_POSE_EDITOR.fingerOffsets)){
-    const bone=map[key];
-    if(!bone) continue;
-    if(!SECURITY_POSE_EDITOR.rest[key]){
-      SECURITY_POSE_EDITOR.rest[key]=bone.rotation.clone();
-    }
-  }
-
-  return Object.keys(map).length>0;
-}
-
-function updateSecurityPoseEditor(){
-  const security=questGetPolice();
-  if(!security?.root) return;
-
-  hideAllSecurityContextPanels();
-
-  if(
-    SECURITY_POST_CASE_HOME_LOCK &&
-    QUEST.stage==="game_complete" &&
-    STOREKEEPER_FINAL.completed
-  ){
-    SECURITY_POSE_EDITOR.wasTalking=false;
-    SECURITY_POSE_EDITOR.rightNeutralAfterTalk=false;
-    SECURITY_POSE_EDITOR.rightReturnActive=false;
-    SECURITY_POSE_EDITOR.rightReturnFrom={};
-    SECURITY_POSE_EDITOR.finalPoseActive=false;
-    SECURITY_FINAL_POSE_EDITOR.transitionActive=false;
-    SECURITY_FINAL_POSE_EDITOR.transitionFrom={};
-    return;
-  }
-
-  const securityIsTalking =
-    security.state==="talk" ||
-    (
-      QUEST.dialogueActive &&
-      (
-        String(QUEST.dialogueSpeaker||"").toUpperCase()==="SECURITY" ||
-        String(QUEST.dialogueSpeaker||"").toUpperCase()==="POLICE"
-      )
-    ) ||
-    (
-      GLOBAL_DIALOGUE_LOCK.active &&
-      GLOBAL_DIALOGUE_LOCK.npc===security
-    );
-
-  const finalPanel=ensureSecurityFinalPoseEditor();
-
-  if(securityIsTalking){
-SECURITY_FINAL_POSE_EDITOR.transitionActive=false;
-    SECURITY_POSE_EDITOR.rightReturnActive=false;
-    SECURITY_POSE_EDITOR.rightReturnFrom={};
-  }else{
-    if(SECURITY_POSE_EDITOR.wasTalking){
-
-      SECURITY_POSE_EDITOR.rightNeutralAfterTalk=true;
-      cacheSecurityFinalPoseDefaults();
-      captureSecurityFinalPoseTransition();
-    }
-
-    if(SECURITY_POSE_EDITOR.rightNeutralAfterTalk){
-
-      applySecurityFinalPose();
-}else{
-
-      if(!SECURITY_POSE_EDITOR.bones.leftArm){
-        cacheSecurityPoseEditorBones();
-      }
-
-      for(const key of ["leftShoulder","leftArm","leftForeArm","leftHand"]){
-        const bone=SECURITY_POSE_EDITOR.bones[key];
-        const rest=SECURITY_POSE_EDITOR.rest[key];
-        const offset=SECURITY_POSE_EDITOR.offsets[key];
-        if(!bone || !rest || !offset) continue;
-
-        bone.rotation.set(
-          rest.x+THREE.MathUtils.degToRad(offset.x||0),
-          rest.y+THREE.MathUtils.degToRad(offset.y||0),
-          rest.z+THREE.MathUtils.degToRad(offset.z||0)
-        );
-      }
-
-      for(const [key,offset] of Object.entries(SECURITY_POSE_EDITOR.fingerOffsets)){
-        if(!key.startsWith("left_")) continue;
-
-        const bone=SECURITY_POSE_EDITOR.bones[key];
-        const rest=SECURITY_POSE_EDITOR.rest[key];
-        if(!bone || !rest) continue;
-
-        bone.rotation.set(
-          rest.x+THREE.MathUtils.degToRad(offset.x||0),
-          rest.y+THREE.MathUtils.degToRad(offset.y||0),
-          rest.z+THREE.MathUtils.degToRad(offset.z||0)
-        );
-      }
-
-      security.root.updateMatrixWorld(true);
-      finalPanel.style.display="none";
-    }
-  }
-
-  SECURITY_POSE_EDITOR.wasTalking=securityIsTalking;
-  SECURITY_POSE_EDITOR.returnActive=false;
-}
-
-const SECURITY_HEAD_SPEECH_STATE=new WeakMap();
-function getSecurityHeadSpeechState(c){
-  let state=SECURITY_HEAD_SPEECH_STATE.get(c);
-  if(state) return state;
-  const head=c.bones.find((bone)=>bone.name==="mixamorig:Head_06") || null;
-  state={
-    head,
-    rest:head ? head.rotation.clone() : null,
-    warned:false
-  };
-  SECURITY_HEAD_SPEECH_STATE.set(c,state);
-  return state;
-}
-function animateSecurityHeadSpeech(c,talking=false){
-  if(c.name!=="securityMan") return;
-  const state=getSecurityHeadSpeechState(c);
-  if(!state.head || !state.rest){
-    if(!state.warned){
-      state.warned=true;
-    }
-    return;
-  }
-  const now=performance.now();
-  const nod=Math.sin(now*.0055);
-  const turn=Math.sin(now*.0037+1.1);
-  const targetX=state.rest.x+(talking ? Math.sin(now*.0066)*.050 : 0);
-  const targetY=state.rest.y+(talking ? turn*.026 : 0);
-  const targetZ=state.rest.z+(talking ? Math.sin(now*.0043+.4)*.010 : 0);
-  smoothBoneTo(
-    state.head,
-    targetX,
-    targetY,
-    targetZ,
-    talking ? .10 : .08
-  );
-}
-const SECURITY_FINGER_STATE=new WeakMap();
-function cleanBoneName(name){
-  return (name || "").toLowerCase().replace(/[^a-z0-9]/g,"");
-}
-function getFingerSegment(name){
-  const match=name.match(/(?:thumb|index|middle|ring|pinky|little)([1-4])/);
-  return match ? Number(match[1]) : 0;
-}
-function isSecurityFingerBone(name){
-  const n=cleanBoneName(name);
-  const isFinger=
-    n.includes("thumb") ||
-    n.includes("index") ||
-    n.includes("middle") ||
-    n.includes("ring") ||
-    n.includes("pinky") ||
-    n.includes("little");
-  const segment=getFingerSegment(n);
-  return isFinger && segment>=1 && segment<=3;
-}
-function getSecurityFingerState(c){
-  let state=SECURITY_FINGER_STATE.get(c);
-  if(state) return state;
-  const fingers=c.bones
-    .filter((bone)=>isSecurityFingerBone(bone.name))
-    .map((bone)=>({
-      bone,
-      rest:bone.rotation.clone(),
-      name:cleanBoneName(bone.name),
-      segment:getFingerSegment(cleanBoneName(bone.name))
-    }));
-  state={fingers};
-  SECURITY_FINGER_STATE.set(c,state);
-  return state;
-}
-function getMainFingerCurl(name,segment){
-  let amount=0;
-  if(segment===1) amount=0.72;
-  else if(segment===2) amount=1.02;
-  else if(segment===3) amount=0.82;
-  if(name.includes("index")) amount*=0.92;
-  else if(name.includes("middle")) amount*=1.00;
-  else if(name.includes("ring")) amount*=1.05;
-  else if(name.includes("pinky") || name.includes("little")) amount*=1.08;
-  return amount;
-}
-function animateSecurityFingers(c,talking=false){
-  if(c.name!=="securityMan") return;
-  const state=getSecurityFingerState(c);
-  if(!state.fingers.length) return;
-  const lookingAtThief=
-    talking &&
-    FINAL_SECURITY_DIALOGUE_FACING?.active &&
-    FINAL_SECURITY_DIALOGUE_FACING.mode==="thief";
-
-  const t=performance.now()*(lookingAtThief ? .0028 : .007);
-  const waveA=(Math.sin(t)+1)*.5;
-  const waveB=(Math.sin(t*1.63+.8)+1)*.5;
-  const gesture=waveA*.65+waveB*.35;
-
-  const closure=talking
-    ? (
-        lookingAtThief
-          ? THREE.MathUtils.lerp(.30,.265,gesture)
-          : THREE.MathUtils.lerp(.34,.20,gesture)
-      )
-    : .34;
-  for(const item of state.fingers){
-    const {bone,rest,name,segment}=item;
-    const isLeft=name.includes("left");
-    if(name.includes("thumb")){
-      let addX=0;
-      let addZ=0;
-      if(segment===1){
-        addX=-0.07;
-        addZ=isLeft ? -0.12 : 0.12;
-      }else if(segment===2){
-        addX=-0.17;
-        addZ=isLeft ? -0.16 : 0.16;
-      }else if(segment===3){
-        addX=-0.16;
-        addZ=isLeft ? -0.04 : 0.04;
-      }
-      smoothBoneTo(
-        bone,
-        rest.x+addX*closure,
-        rest.y,
-        rest.z+addZ*closure,
-        talking ? (lookingAtThief ? .065 : .14) : .11
-      );
-      continue;
-    }
-    const addX=getMainFingerCurl(name,segment)*closure;
-    smoothBoneTo(
-      bone,
-      rest.x+addX,
-      rest.y,
-      rest.z,
-      talking ? (lookingAtThief ? .065 : .14) : .11
-    );
-  }
-}
 function applyThiefEditorBodyPose(c,b,pose,lerp=.12){
   const directBones=[
     "leftShoulder",
@@ -13478,576 +10184,85 @@ function animateToxicNeutralIdle(c,b){
     .035
   );
 }
-const CHILD_VISIT_POSE_STATE={
-  talkStart:0,
-  talkStartPos:null,
-  talkPoseLatched:false,
-  stableYaw:null
-};
-const CHILD_ADVANCED_TALK_STATE=new WeakMap();
-
-const CHILD_NEW_TALK_STATE=new WeakMap();
-
-function animateChildNewTalk(c){
-  if(!c?.ready || !c?.root) return;
-
-  const stillTurning=turnNpcTowardPlayerWithSteps(c,.12);
-
-  let s=CHILD_USER_POSE_FLOW_STATE.get(c);
-  if(!s){
-    childUserStartPoseFlow(c);
-    s=CHILD_USER_POSE_FLOW_STATE.get(c);
-  }
-
-  const now=performance.now();
-
-  if(
-    s?.stepStartPos &&
-    s?.stepTargetPos &&
-    !s.stepDone
-  ){
-    const elapsed=now-s.start;
-
-    const stepRaw=THREE.MathUtils.clamp(
-      elapsed/(CHILD_USER_POSE_FLOW.enterMs*.72),
-      0,
-      1
-    );
-    const stepT=childUserSmooth01(stepRaw);
-
-    c.root.position.lerpVectors(
-      s.stepStartPos,
-      s.stepTargetPos,
-      stepT
-    );
-
-    if(stepRaw>=1){
-      s.stepDone=true;
-    }
-  }
-
-  if(s.phase==="enter"){
-    const raw=(now-s.start)/CHILD_USER_POSE_FLOW.enterMs;
-    const t=childUserSmooth01(raw);
-
-    const p=childUserLerpPose(
-      s.from,
-      CHILD_USER_POSE_1,
-      t
-    );
-
-    p.leftFingerCurl=THREE.MathUtils.lerp(
-      s.from?.leftFingerCurl||0,
-      CHILD_USER_POSE_1.leftFingerCurl||0,
-      t
-    );
-    p.rightFingerCurl=THREE.MathUtils.lerp(
-      s.from?.rightFingerCurl||0,
-      CHILD_USER_POSE_1.rightFingerCurl||0,
-      t
-    );
-
-    p.head=[
-      Math.sin(t*Math.PI)*.75,
-      Math.sin(t*Math.PI*.85)*.30,
-      0
-    ];
-    p.neck=[
-      Math.sin(t*Math.PI)*.35,
-      Math.sin(t*Math.PI*.85)*.14,
-      0
-    ];
-
-    childUserApplyPose(c,p);
-
-    childUserApplyLegTurnOverlay(c,t*.55);
-
-    if(raw>=1){
-      s.phase="talk";
-      s.start=now;
-    }
-    return;
-  }
-
-  if(s.phase==="talk"){
-    const seconds=(now-s.start)/1000;
-
-    const sine=
-      (Math.sin(
-        seconds*(Math.PI*2/CHILD_USER_POSE_FLOW.cycleSeconds)
-        - Math.PI/2
-      )+1)*.5;
-
-    const blend=childUserSmooth01(sine);
-
-    const p=childUserLerpPose(
-      CHILD_USER_POSE_1,
-      CHILD_USER_POSE_2,
-      blend
-    );
-
-    const a=Math.sin(seconds*1.55);
-    const b=Math.sin(seconds*1.25+.75);
-    const c2=Math.sin(seconds*.95+1.25);
-
-    p.leftArm[0]+=a*CHILD_USER_POSE_FLOW.armShake*.12;
-    p.rightArm[0]+=a*CHILD_USER_POSE_FLOW.armShake*.12;
-
-    p.leftForeArm[0]+=b*CHILD_USER_POSE_FLOW.foreShake*.10;
-    p.leftForeArm[2]+=a*.07;
-
-    p.rightForeArm[0]+=b*.09;
-    p.rightForeArm[2]-=a*.06;
-
-    p.leftHand[0]+=a*.025;
-    p.rightHand[0]+=a*.025;
-
-    p.head=[
-      a*CHILD_USER_POSE_FLOW.headNod,
-      b*.78,
-      c2*.24
-    ];
-    p.neck=[
-      a*CHILD_USER_POSE_FLOW.neckNod,
-      b*.32,
-      c2*.10
-    ];
-
-    const pulse=(Math.sin(seconds*3.55)+1)*.5;
-
-    p.leftFingerCurl=
-      THREE.MathUtils.lerp(
-        CHILD_USER_POSE_1.leftFingerCurl,
-        CHILD_USER_POSE_2.leftFingerCurl,
-        blend
-      )
-      + pulse*CHILD_USER_POSE_FLOW.fingerPulse*.02;
-
-    p.rightFingerCurl=
-      THREE.MathUtils.lerp(
-        CHILD_USER_POSE_1.rightFingerCurl,
-        CHILD_USER_POSE_2.rightFingerCurl,
-        blend
-      )
-      + (1-pulse)*CHILD_USER_POSE_FLOW.fingerPulse*.02;
-
-    childUserApplyPose(c,p);
-
-    const turnP=THREE.MathUtils.clamp(seconds/1.45,0,1);
-
-    if(stillTurning || turnP<1 || (s?.turnAngleDeg||0)<12){
-      childUserApplyLegTurnOverlay(c,turnP);
-    }
-
-    return;
-  }
-}
-
-const CHILD_USER_POSE_1={
-  spine2:[0,0,0],
-
-  leftShoulder:[0,0,0],
-  leftArm:[81,0,0],
-  leftForeArm:[0,0,-6],
-  leftHand:[0,0,0],
-
-  rightShoulder:[0,0,0],
-  rightArm:[80,0,0],
-  rightForeArm:[0,0,6],
-  rightHand:[0,0,0],
-
-  neck:[0,0,0],
-  head:[0,0,0],
-
-  leftFingerCurl:.07,
-  rightFingerCurl:.07
-};
-
-const CHILD_USER_POSE_2={
-  spine2:[0,0,0],
-
-  leftShoulder:[0,0,0],
-  leftArm:[79,0,0],
-  leftForeArm:[13,0,36],
-  leftHand:[0,0,0],
-
-  rightShoulder:[0,0,0],
-  rightArm:[79,0,0],
-  rightForeArm:[0,0,-20],
-  rightHand:[0,0,0],
-
-  neck:[0,0,0],
-  head:[0,0,0],
-
-  leftFingerCurl:.28,
-  rightFingerCurl:.25
-};
-
-const CHILD_USER_POSE_FLOW={
-  enterMs:700,
-  returnMs:900,
-  cycleSeconds:2.20,
-
-  armShake:2.15,
-  foreShake:2.35,
-  headNod:1.55,
-  neckNod:.82,
-
-  fingerPulse:.10,
-  legTurnStrength:1.0
-};
-
-const CHILD_USER_POSE_FLOW_STATE=new WeakMap();
-
-function childUserSmooth01(v){
-  const t=THREE.MathUtils.clamp(v,0,1);
-  return t*t*(3-2*t);
-}
-
-function childUserCapturePose(c){
-  const b=getBones(c);
-  const out={};
-
-  for(const key of [
-    "spine2",
-    "leftShoulder","leftArm","leftForeArm","leftHand",
-    "rightShoulder","rightArm","rightForeArm","rightHand",
-    "neck","head"
-  ]){
-    const bone=b[key];
-    if(!bone) continue;
-
-    const r=getRest(c,bone);
-    if(!r) continue;
-
-    out[key]=[
-      THREE.MathUtils.radToDeg(bone.rotation.x-r.x),
-      THREE.MathUtils.radToDeg(bone.rotation.y-r.y),
-      THREE.MathUtils.radToDeg(bone.rotation.z-r.z)
-    ];
-  }
-
-  out.leftFingerCurl=0;
-  out.rightFingerCurl=0;
-
-  return out;
-}
-
-function childUserLerpPose(a,b,t){
-  const out={};
-
-  for(const key of [
-    "spine2",
-    "leftShoulder","leftArm","leftForeArm","leftHand",
-    "rightShoulder","rightArm","rightForeArm","rightHand",
-    "neck","head"
-  ]){
-    const av=a?.[key] || [0,0,0];
-    const bv=b?.[key] || [0,0,0];
-
-    out[key]=[
-      THREE.MathUtils.lerp(av[0]||0,bv[0]||0,t),
-      THREE.MathUtils.lerp(av[1]||0,bv[1]||0,t),
-      THREE.MathUtils.lerp(av[2]||0,bv[2]||0,t)
-    ];
-  }
-
-  return out;
-}
-
-function childUserFingerBones(c){
-  const root=c?.root;
-  if(!root) return {left:[],right:[]};
-
-  const norm=s=>String(s||"")
-    .toLowerCase()
-    .replace(/mixamorig/g,"")
-    .replace(/[^a-z0-9]/g,"");
-
-  const left=[];
-  const right=[];
-
-  root.traverse(o=>{
-    if(!o?.isBone) return;
-    const n=norm(o.name);
-
-    if(
-      n.includes("lefthandindex1") ||
-      n.includes("lefthandmiddle1") ||
-      n.includes("lefthandring1") ||
-      n.includes("lefthandpinky1")
-    ){
-      left.push(o);
-    }
-
-    if(
-      n.includes("righthandindex1") ||
-      n.includes("righthandmiddle1") ||
-      n.includes("righthandring1") ||
-      n.includes("righthandpinky1")
-    ){
-      right.push(o);
-    }
-  });
-
-  return {left,right};
-}
-
-const CHILD_USER_FINGER_BASE=new WeakMap();
-
-function childUserEnsureFingerBase(c){
-  let base=CHILD_USER_FINGER_BASE.get(c);
-  if(base) return base;
-
-  const fingers=childUserFingerBones(c);
-  base={
-    left:new Map(),
-    right:new Map()
-  };
-
-  for(const bone of fingers.left){
-    base.left.set(bone,bone.quaternion.clone());
-  }
-  for(const bone of fingers.right){
-    base.right.set(bone,bone.quaternion.clone());
-  }
-
-  CHILD_USER_FINGER_BASE.set(c,base);
-  return base;
-}
-
-function childUserApplyFingerCurl(c,leftCurl,rightCurl){
-  const base=childUserEnsureFingerBase(c);
-
-  const apply=(map,amount)=>{
-    for(const [bone,q0] of map){
-      if(!bone) continue;
-
-      const qCurl=new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(
-          THREE.MathUtils.degToRad(
-            THREE.MathUtils.clamp(amount,0,1)*52
-          ),
-          0,
-          0,
-          "XYZ"
-        )
-      );
-
-      bone.quaternion.copy(q0).multiply(qCurl);
-    }
-  };
-
-  apply(base.left,leftCurl||0);
-  apply(base.right,rightCurl||0);
-}
-
-function childUserApplyLegTurnOverlay(c,p){
-  if(!c?.ready) return;
-
-  const s=CHILD_USER_POSE_FLOW_STATE.get(c);
-  const turnAngleDeg=s?.turnAngleDeg||0;
-
-  const b=getBones(c);
-
-  const turnStrength=THREE.MathUtils.clamp(
-    (turnAngleDeg-12)/55,
-    0,
-    1
-  );
-
-  const phase=THREE.MathUtils.clamp(p,0,1);
-
-  const leftLift=Math.sin(
-    THREE.MathUtils.clamp(phase*2,0,1)*Math.PI
-  );
-
-  const rightPhase=THREE.MathUtils.clamp(
-    (phase-.42)/.58,
-    0,
-    1
-  );
-  const rightLift=Math.sin(rightPhase*Math.PI);
-
-  const tiny=Math.sin(performance.now()*.0032)*.28;
-
-  const move=(bone,dx,dy,dz,speed=.12)=>{
-    if(!bone) return;
-    const r=getRest(c,bone);
-    if(!r) return;
-
-    smoothBoneTo(
-      bone,
-      r.x+THREE.MathUtils.degToRad(dx),
-      r.y+THREE.MathUtils.degToRad(dy),
-      r.z+THREE.MathUtils.degToRad(dz),
-      speed
-    );
-  };
-
-  const legAmp=4.0*turnStrength;
-
-  move(
-    b.leftUpLeg,
-    leftLift*legAmp + tiny,
-    0,
-    leftLift*.55*turnStrength,
-    .12
-  );
-  move(
-    b.rightUpLeg,
-    rightLift*legAmp - tiny,
-    0,
-    -rightLift*.55*turnStrength,
-    .12
-  );
-
-  move(
-    b.leftKnee,
-    leftLift*2.8*turnStrength,
-    0,
-    0,
-    .13
-  );
-  move(
-    b.rightKnee,
-    rightLift*2.8*turnStrength,
-    0,
-    0,
-    .13
-  );
-
-  move(
-    b.leftFoot,
-    -leftLift*.85*turnStrength,
-    0,
-    0,
-    .14
-  );
-  move(
-    b.rightFoot,
-    -rightLift*.85*turnStrength,
-    0,
-    0,
-    .14
-  );
-}
-
-function childUserApplyPose(c,pose,extra=null){
-  if(!c?.ready) return;
-
-  const b=getBones(c);
-
-  for(const key of [
-    "spine2",
-    "leftShoulder","leftArm","leftForeArm","leftHand",
-    "rightShoulder","rightArm","rightForeArm","rightHand",
-    "neck","head"
-  ]){
-    const bone=b[key];
-    const p=pose?.[key];
-    if(!bone || !p) continue;
-
-    childPoseOffsetTarget(
-      c,
-      bone,
-      p,
-      extra?.[key] || [0,0,0]
-    );
-  }
-
-  childUserApplyFingerCurl(
-    c,
-    pose?.leftFingerCurl||0,
-    pose?.rightFingerCurl||0
-  );
-
-  c.root.updateMatrixWorld(true);
-}
-
-function childUserStartPoseFlow(c){
-  let turnAngleDeg=0;
-  let stepStartPos=null;
-  let stepTargetPos=null;
-
-  if(c?.root && player?.root){
-    const dx=player.root.position.x-c.root.position.x;
-    const dz=player.root.position.z-c.root.position.z;
-
-    const targetYaw=Math.atan2(dx,dz);
-    const diff=normalizeAngle(targetYaw-c.root.rotation.y);
-
-    turnAngleDeg=Math.abs(
-      THREE.MathUtils.radToDeg(diff)
-    );
-
-    stepStartPos=c.root.position.clone();
-
-    const stepFactor=THREE.MathUtils.clamp(
-      (turnAngleDeg-18)/72,
-      0,
-      1
-    );
-
-    const dir=new THREE.Vector3(dx,0,dz);
-    if(dir.lengthSq()>.0001){
-      dir.normalize();
-
-      stepTargetPos=stepStartPos.clone().addScaledVector(
-        dir,
-        .14*stepFactor
-      );
-    }else{
-      stepTargetPos=stepStartPos.clone();
-    }
-  }
-
-  CHILD_USER_POSE_FLOW_STATE.set(c,{
-    phase:"enter",
-    start:performance.now(),
-    from:childUserCapturePose(c),
-
-    turnAngleDeg,
-    stepStartPos,
-    stepTargetPos,
-    stepDone:false
-  });
-}
-
-function childUserBeginReturnPose1(c){
-  CHILD_USER_POSE_FLOW_STATE.set(c,{
-    phase:"return",
-    start:performance.now(),
-    from:childUserCapturePose(c)
-  });
-
-  CHILD_VISIT_POSE_STATE.talkPoseLatched=true;
-}
-
-const CHILD_APPROVED_POSES={
-  wall:{
-    spine2:[3,0,0],
-    leftShoulder:[4,0,0],
-    leftArm:[15,23,12],
-    leftForeArm:[28,-20,95],
-    leftHand:[-81,4,0],
-    rightShoulder:[7,0,0],
-    rightArm:[57,9,-12],
-    rightForeArm:[-25,-81,-60],
-    rightHand:[-4,41,-47]
-  },
-  talk:{
-    spine2:[0,0,0],
-    leftShoulder:[4,0,0],
-    leftArm:[15,23,12],
-    leftForeArm:[28,-20,95],
-    leftHand:[-81,4,0],
-    rightShoulder:[7,0,0],
-    rightArm:[57,9,-12],
-    rightForeArm:[-25,-81,-60],
-    rightHand:[-4,41,-47]
-  }
-};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const {
+  CHILD_VISIT_POSE_STATE,
+  CHILD_ADVANCED_TALK_STATE,
+  CHILD_NEW_TALK_STATE,
+  CHILD_USER_POSE_FLOW_STATE,
+  CHILD_USER_FINGER_BASE,
+  animateChildNewTalk,
+  childUserSmooth01,
+  childUserCapturePose,
+  childUserLerpPose,
+  childUserFingerBones,
+  childUserEnsureFingerBase,
+  childUserApplyFingerCurl,
+  childUserApplyLegTurnOverlay,
+  childUserApplyPose,
+  childUserStartPoseFlow,
+  childUserBeginReturnPose1
+}=createChildPoseSystem({
+  CASINO_EDITABLE_OBJECTS,
+  CHARACTER_CONFIGS,
+  NPC_CONVERSATION_FINAL_LATCH,
+  SCENE_ENV_CONFIG,
+  SECURITY_INITIAL_VISIBLE_POSE,
+  STOREKEEPER_FINAL,
+  THIEF_TALK_POSE_STATE,
+  THIEF_TALK_ROOT_LOCK,
+  THIEF_UNDISCOVERED_POSE_A,
+  THIEF_UNDISCOVERED_POSE_B,
+  THIEF_UNDISCOVERED_POSE_C,
+  npcs,
+  player,
+  animateThiefEditorFingers,
+  findDenseWallSourceMaterial,
+  normalizeAngle,
+  registerCasinoEditable,
+  smoothBoneTo,
+  turnNpcTowardPlayerWithSteps,
+  keys,
+  get NPC_TALK_TURN_STEP_STATE(){ return NPC_TALK_TURN_STEP_STATE; }
+});
+
 const CASINO_CHILD_INITIAL={
   position:new THREE.Vector3(
     CHARACTER_CONFIGS.child.position.x,
@@ -14667,2233 +10882,46 @@ function animateIdle(c){
   animateSecurityFingers(c,false);
   animateSecurityHeadSpeech(c,false);
 }
-const PLAYER_PROCEDURAL_WALK_CONFIG={
-  format:"procedural-walk-config",
-  version:1,
-  speed:1.12,
-  stride:0.250,
-  knee:0.78,
-  ankle:0.32,
-  armAmount:0.70,
-  shoulderIn:0.29,
-  shoulderPoseX:0.00,
-  shoulderPoseY:-0.45,
-  shoulderPoseZ:0.00,
-  armPoseX:0.00,
-  armPoseY:0.00,
-  armPoseZ:0.00,
-  forearmPoseX:0.20,
-  forearmPoseY:0.00,
-  forearmPoseZ:0.00,
-  handPoseX:-0.08,
-  handPoseY:-0.08,
-  handPoseZ:0.00,
-  armSwingX:1.00,
-  armSwingY:0.00,
-  armSwingZ:0.00,
-  forearmSwingX:0.12,
-  forearmSwingY:0.00,
-  forearmSwingZ:0.00,
-  handSwingX:0.00,
-  handSwingY:0.00,
-  handSwingZ:0.00,
-  floorClearance:0.075,
-  mirrorArmPose:true,
-  invertLeftArm:false,
-  invertRightArm:false,
-  invertHips:false,
-  invertKnees:false,
-  cycleRadiansPerSecond:4.40,
-  shoulderSwingFactor:0.05,
-  toeFactor:0.52,
-  pelvisTwist:0.012,
-  pelvisRoll:0.004,
-  breathingSway:0.003,
-  oldArms:{
-    shoulderZ:0.0,
-    armSwingX:-0.01,
-    armBaseX:-0.04,
-    leftArmZMin:0.10,
-    leftArmZMax:-0.30,
-    rightArmZMin:-0.10,
-    rightArmZMax:0.30,
-    foreArmBaseX:0.06,
-    foreArmMoveX:0.045,
-    leftForeArmZBase:0.00,
-    leftForeArmZMin:0.15,
-    leftForeArmZMax:0.25,
-    rightForeArmZBase:0.00,
-    rightForeArmZMin:-0.15,
-    rightForeArmZMax:-0.25,
-    handZ:0.025
-  },
-  walkPoseLerp:0.28,
-  stopPoseLerp:0.075,
-  stopPositionLerp:0.08
-};
+
 
 // Dedicated procedural configuration for A/D turn-in-place.
 // It starts IDENTICAL to PLAYER_PROCEDURAL_WALK_CONFIG so you can tune it independently.
-const PLAYER_PROCEDURAL_TURN_CONFIG={
-  format:"procedural-walk-config",
-  version:1,
-  speed:1.12,
-  stride:0.250,
-  knee:0.78,
-  ankle:0.32,
-  armAmount:0.70,
-  shoulderIn:0.29,
-  shoulderPoseX:0.00,
-  shoulderPoseY:-0.41,
-  shoulderPoseZ:0.00,
-  armPoseX:0.00,
-  armPoseY:0.00,
-  armPoseZ:0.00,
-  forearmPoseX:0.20,
-  forearmPoseY:0.00,
-  forearmPoseZ:0.00,
-  handPoseX:-0.16,
-  handPoseY:-0.08,
-  handPoseZ:0.00,
-  armSwingX:1.00,
-  armSwingY:0.00,
-  armSwingZ:0.00,
-  forearmSwingX:0.12,
-  forearmSwingY:0.00,
-  forearmSwingZ:0.00,
-  handSwingX:0.00,
-  handSwingY:0.00,
-  handSwingZ:0.00,
-  floorClearance:0.075,
-  mirrorArmPose:true,
-  invertLeftArm:false,
-  invertRightArm:false,
-  invertHips:false,
-  invertKnees:false,
-  cycleRadiansPerSecond:4.85,
-  shoulderSwingFactor:0.05,
-  toeFactor:0.52,
-  pelvisTwist:0.012,
-  pelvisRoll:0.004,
-  breathingSway:0.003,
-  oldArms:{
-    shoulderZ:0.0,
-    armSwingX:-0.01,
-    armBaseX:-0.04,
-    leftArmZMin:0.20,
-    leftArmZMax:-0.20,
-    rightArmZMin:-0.20,
-    rightArmZMax:0.20,
-    foreArmBaseX:0.06,
-    foreArmMoveX:0.045,
-    leftForeArmZBase:0.00,
-    leftForeArmZMin:0.15,
-    leftForeArmZMax:0.25,
-    rightForeArmZBase:0.00,
-    rightForeArmZMin:-0.15,
-    rightForeArmZMax:-0.25,
-    handZ:0.025
-  },
-  walkPoseLerp:0.28,
-  stopPoseLerp:0.075,
-  stopPositionLerp:0.08
-};
-
-const PLAYER_AXIS_RIGHT=new THREE.Vector3(1,0,0);
-const PLAYER_AXIS_UP=new THREE.Vector3(0,1,0);
-const PLAYER_AXIS_FORWARD=new THREE.Vector3(0,0,1);
-const PLAYER_PROCEDURAL_STATE=new WeakMap();
-
-function getPlayerFingerBones(c,bones){
-  const fingers=[];
-  const seen=new Set();
-
-  const detectFinger=(name)=>{
-    const n=String(name||"").toLowerCase();
-    if(n.includes("thumb")) return "thumb";
-    if(n.includes("index")) return "index";
-    if(n.includes("middle")) return "middle";
-    if(n.includes("ring")) return "ring";
-    if(n.includes("pinky") || n.includes("little")) return "pinky";
-    return null;
-  };
-
-  const detectSide=(bone)=>{
-    const chain=[];
-    let node=bone;
-    for(let i=0;node && i<6;i++,node=node.parent){
-      chain.push(String(node.name||"").toLowerCase());
-    }
-    const all=chain.join(" ");
-
-    if(
-      /(^|[^a-z])(left|l)([^a-z]|$)/.test(all) ||
-      all.includes("lefthand") ||
-      all.includes("hand_l") ||
-      all.includes("hand.l") ||
-      all.includes("_l_") ||
-      all.includes(".l.")
-    ) return "left";
-
-    if(
-      /(^|[^a-z])(right|r)([^a-z]|$)/.test(all) ||
-      all.includes("righthand") ||
-      all.includes("hand_r") ||
-      all.includes("hand.r") ||
-      all.includes("_r_") ||
-      all.includes(".r.")
-    ) return "right";
-
-    return null;
-  };
-
-  const addBone=(bone,forcedSide=null)=>{
-    if(!bone?.isBone || seen.has(bone)) return;
-
-    const finger=detectFinger(bone.name);
-    if(!finger) return;
-
-    const side=forcedSide || detectSide(bone);
-    if(!side) return;
-
-    seen.add(bone);
-    fingers.push({
-      bone,
-      side,
-      finger,
-      name:String(bone.name||"").toLowerCase()
-    });
-  };
 
 
-  c?.model?.traverse?.((bone)=>addBone(bone));
-
-
-  bones.leftHand?.traverse?.((bone)=>addBone(bone,"left"));
-  bones.rightHand?.traverse?.((bone)=>addBone(bone,"right"));
-
-  return fingers;
-}
-
-function applyPlayerFingerCurl(c,state,phase,amount=1){
-  const fingers=state.fingers||[];
-  if(!fingers.length) return;
-
-
-  for(const f of fingers){
-    if(!f?.bone || !state.restQ.has(f.bone)) continue;
-
-    const isThumb=f.finger==="thumb";
-    const segment=f.segment||2;
-
-    const sidePhase=
-      f.side==="left"
-        ? phase*1.35
-        : phase*1.35+Math.PI*.65;
-
-    const pulse=(Math.sin(sidePhase)+1)*.5;
-
-    const base=isThumb ? .012 : .020;
-    const movingCurl=isThumb ? .018 : .032;
-
-    const segmentGain=
-      segment<=1 ? .48 :
-      segment===2 ? .70 :
-      segment===3 ? .82 :
-      .16;
-
-    const curl=
-      (base+pulse*movingCurl)*
-      segmentGain*
-      amount;
-
-    setPlayerBoneAxisRotation(
-      c,
-      state,
-      f.bone,
-      PLAYER_AXIS_RIGHT,
-      curl
-    );
-  }
-}
-
-function createPlayerProceduralState(c){
-  const b=getBones(c);
-  const restQ=new Map();
-  const restP=new Map();
-  Object.values(b).filter(Boolean).forEach((bone)=>{
-    restQ.set(bone,bone.quaternion.clone());
-    restP.set(bone,bone.position.clone());
-  });
-  const fingers=getPlayerFingerBones(c,b);
-  fingers.forEach(({bone})=>{
-    if(!restQ.has(bone)) restQ.set(bone,bone.quaternion.clone());
-    if(!restP.has(bone)) restP.set(bone,bone.position.clone());
-  });
-  const state={
-    bones:b,
-    fingers,
-    restQ,
-    restP,
-    phase:0,
-    lastTime:performance.now(),
-    initialized:true,
-    modelBaseY:c.model ? c.model.position.y : 0
-  };
-  PLAYER_PROCEDURAL_STATE.set(c,state);
-  return state;
-}
-function getPlayerProceduralState(c){
-  let state=PLAYER_PROCEDURAL_STATE.get(c);
-  if(!state || !state.initialized || state.bones.hips?.parent===null){
-    state=createPlayerProceduralState(c);
-  }
-  return state;
-}
-function smooth01(v){
-  const x=THREE.MathUtils.clamp(v,0,1);
-  return x*x*(3-2*x);
-}
-function getPlayerGaitPhase(phase){
-  const s=Math.sin(phase);
-  const c=Math.cos(phase);
-  const pushOff=smooth01((-c-0.08)/0.92);
-  const swingLift=smooth01((-s+0.02)/1.02);
-  const landing=smooth01((c-0.08)/0.92);
-  const support=smooth01((s+0.15)/1.15)*smooth01((c+0.35)/1.35);
-  const knee=
-    pushOff*0.34+
-    swingLift*0.90-
-    landing*0.08;
-  const ankle=
-    -s*0.20+
-    pushOff*0.38-
-    landing*0.22-
-    support*0.05;
-  const toe=
-    pushOff*0.50-
-    landing*0.06;
-  return {
-    hip:s,
-    knee:Math.max(0.02,knee),
-    ankle,
-    toe
-  };
-}
-function restorePlayerProceduralPose(state){
-  for(const [bone,q] of state.restQ){
-    bone.quaternion.copy(q);
-  }
-  for(const [bone,p] of state.restP){
-    bone.position.copy(p);
-  }
-}
-function getPlayerAxisInBoneParent(c,bone,axisInModel){
-  if(!c.model || !bone || !bone.parent) return null;
-  c.model.updateMatrixWorld(true);
-  bone.parent.updateMatrixWorld(true);
-  const modelWorldQ=new THREE.Quaternion();
-  const parentWorldQ=new THREE.Quaternion();
-  c.model.getWorldQuaternion(modelWorldQ);
-  bone.parent.getWorldQuaternion(parentWorldQ);
-  return axisInModel.clone()
-    .applyQuaternion(modelWorldQ)
-    .normalize()
-    .applyQuaternion(parentWorldQ.invert())
-    .normalize();
-}
-function setPlayerBoneAxisRotation(c,state,bone,axisInModel,angle){
-  if(!bone || !state.restQ.has(bone)) return;
-  const axisParent=getPlayerAxisInBoneParent(c,bone,axisInModel);
-  if(!axisParent) return;
-  const deltaQ=new THREE.Quaternion().setFromAxisAngle(axisParent,angle);
-  bone.quaternion.copy(state.restQ.get(bone));
-  bone.quaternion.premultiply(deltaQ);
-}
-function addPlayerBoneAxisRotation(c,bone,axisInModel,angle){
-  if(!bone) return;
-  const axisParent=getPlayerAxisInBoneParent(c,bone,axisInModel);
-  if(!axisParent) return;
-  const deltaQ=new THREE.Quaternion().setFromAxisAngle(axisParent,angle);
-  bone.quaternion.premultiply(deltaQ);
-}
-function applyPlayerOldArms(c,state,phase,isWalking){
-  const cfg=PLAYER_PROCEDURAL_WALK_CONFIG.oldArms;
-  const b=state.bones;
-  const pose=getPose(c);
-  const walk=Math.sin(phase);
-  const walkOpp=Math.sin(phase+Math.PI);
-  if(isWalking){
-    if(b.leftShoulder){
-      b.leftShoulder.rotation.set(
-        getRest(c,b.leftShoulder).x,
-        getRest(c,b.leftShoulder).y,
-        getRest(c,b.leftShoulder).z+walkOpp*cfg.shoulderZ
-      );
-    }
-    if(b.rightShoulder){
-      b.rightShoulder.rotation.set(
-        getRest(c,b.rightShoulder).x,
-        getRest(c,b.rightShoulder).y,
-        getRest(c,b.rightShoulder).z+walk*cfg.shoulderZ
-      );
-    }
-    const leftArmZAmount=(walkOpp+1)*0.5;
-    const rightArmZAmount=(walk+1)*0.5;
-    const leftArmZ=THREE.MathUtils.lerp(
-      cfg.leftArmZMin,
-      cfg.leftArmZMax,
-      leftArmZAmount
-    );
-    const rightArmZ=THREE.MathUtils.lerp(
-      cfg.rightArmZMin,
-      cfg.rightArmZMax,
-      rightArmZAmount
-    );
-    if(b.leftArm){
-      b.leftArm.rotation.set(
-        pose.armX+cfg.armBaseX+walkOpp*cfg.armSwingX,
-        0,
-        leftArmZ
-      );
-    }
-    if(b.rightArm){
-      b.rightArm.rotation.set(
-        pose.armX+cfg.armBaseX+walk*cfg.armSwingX,
-        0,
-        rightArmZ
-      );
-    }
-    const leftElbowZAmount=(walkOpp+1)*0.5;
-    const rightElbowZAmount=(walk+1)*0.5;
-    const leftForeArmZ=THREE.MathUtils.lerp(
-      cfg.leftForeArmZMin,
-      cfg.leftForeArmZMax,
-      leftElbowZAmount
-    );
-    const rightForeArmZ=THREE.MathUtils.lerp(
-      cfg.rightForeArmZMin,
-      cfg.rightForeArmZMax,
-      rightElbowZAmount
-    );
-    if(b.leftForeArm){
-      b.leftForeArm.rotation.set(
-        pose.foreArmX+cfg.foreArmBaseX+Math.max(0,walk)*cfg.foreArmMoveX,
-        0,
-        leftForeArmZ
-      );
-    }
-    if(b.rightForeArm){
-      b.rightForeArm.rotation.set(
-        pose.foreArmX+cfg.foreArmBaseX+Math.max(0,walkOpp)*cfg.foreArmMoveX,
-        0,
-        rightForeArmZ
-      );
-    }
-    if(b.leftHand){
-      b.leftHand.rotation.set(
-        getRest(c,b.leftHand).x,
-        getRest(c,b.leftHand).y,
-        getRest(c,b.leftHand).z+walkOpp*cfg.handZ
-      );
-    }
-    if(b.rightHand){
-      b.rightHand.rotation.set(
-        getRest(c,b.rightHand).x,
-        getRest(c,b.rightHand).y,
-        getRest(c,b.rightHand).z+walk*cfg.handZ
-      );
-    }
-  }else{
-    if(b.leftShoulder){
-      b.leftShoulder.rotation.copy(getRest(c,b.leftShoulder));
-    }
-    if(b.rightShoulder){
-      b.rightShoulder.rotation.copy(getRest(c,b.rightShoulder));
-    }
-    if(b.leftArm){
-      b.leftArm.rotation.set(pose.armX,0,0);
-    }
-    if(b.rightArm){
-      b.rightArm.rotation.set(pose.armX,0,0);
-    }
-    if(b.leftForeArm){
-      b.leftForeArm.rotation.set(
-        pose.foreArmX,
-        0,
-        cfg.leftForeArmZBase
-      );
-    }
-    if(b.rightForeArm){
-      b.rightForeArm.rotation.set(
-        pose.foreArmX,
-        0,
-        cfg.rightForeArmZBase
-      );
-    }
-    if(b.leftHand){
-      b.leftHand.rotation.copy(getRest(c,b.leftHand));
-    }
-    if(b.rightHand){
-      b.rightHand.rotation.copy(getRest(c,b.rightHand));
-    }
-  }
-}
-function applyPlayerOldArmsTurn(c,state,phase){
-  const cfg=PLAYER_PROCEDURAL_TURN_CONFIG.oldArms;
-  const b=state.bones;
-  const pose=getPose(c);
-
-  // Dedicated A/D turn arm cycle.
-  // Same idea as oldArms, but with smaller swing values.
-  const turn=Math.sin(phase*.82);
-  const turnOpp=Math.sin(phase*.82+Math.PI);
-
-  const SHOULDER_SWING_SCALE=AD_TURN_WALK.shoulderSwing;
-  const ARM_SWING_SCALE=AD_TURN_WALK.armSwing;
-  const FOREARM_SWING_SCALE=AD_TURN_WALK.forearmSwing;
-  const HAND_SWING_SCALE=AD_TURN_WALK.handSwing;
-
-  if(b.leftShoulder){
-    b.leftShoulder.rotation.set(
-      getRest(c,b.leftShoulder).x,
-      getRest(c,b.leftShoulder).y,
-      getRest(c,b.leftShoulder).z+
-        turnOpp*cfg.shoulderZ*SHOULDER_SWING_SCALE
-    );
-  }
-
-  if(b.rightShoulder){
-    b.rightShoulder.rotation.set(
-      getRest(c,b.rightShoulder).x,
-      getRest(c,b.rightShoulder).y,
-      getRest(c,b.rightShoulder).z+
-        turn*cfg.shoulderZ*SHOULDER_SWING_SCALE
-    );
-  }
-
-  const leftArmZAmount=(turnOpp+1)*.5;
-  const rightArmZAmount=(turn+1)*.5;
-
-  const leftArmZ=THREE.MathUtils.lerp(
-    cfg.leftArmZMin,
-    cfg.leftArmZMax,
-    leftArmZAmount
-  );
-
-  const rightArmZ=THREE.MathUtils.lerp(
-    cfg.rightArmZMin,
-    cfg.rightArmZMax,
-    rightArmZAmount
-  );
-
-  if(b.leftArm){
-    b.leftArm.rotation.set(
-      pose.armX+
-        cfg.armBaseX+
-        turnOpp*cfg.armSwingX*ARM_SWING_SCALE,
-      0,
-      THREE.MathUtils.lerp(
-        pose.armZ||0,
-        leftArmZ,
-        ARM_SWING_SCALE
-      )
-    );
-  }
-
-  if(b.rightArm){
-    b.rightArm.rotation.set(
-      pose.armX+
-        cfg.armBaseX+
-        turn*cfg.armSwingX*ARM_SWING_SCALE,
-      0,
-      THREE.MathUtils.lerp(
-        pose.armZ||0,
-        rightArmZ,
-        ARM_SWING_SCALE
-      )
-    );
-  }
-
-  const leftElbowZAmount=(turnOpp+1)*.5;
-  const rightElbowZAmount=(turn+1)*.5;
-
-  const leftForeArmZ=THREE.MathUtils.lerp(
-    cfg.leftForeArmZMin,
-    cfg.leftForeArmZMax,
-    leftElbowZAmount
-  );
-
-  const rightForeArmZ=THREE.MathUtils.lerp(
-    cfg.rightForeArmZMin,
-    cfg.rightForeArmZMax,
-    rightElbowZAmount
-  );
-
-  if(b.leftForeArm){
-    b.leftForeArm.rotation.set(
-      pose.foreArmX+
-        cfg.foreArmBaseX+
-        Math.max(0,turn)*cfg.foreArmMoveX*FOREARM_SWING_SCALE,
-      0,
-      THREE.MathUtils.lerp(
-        cfg.leftForeArmZBase,
-        leftForeArmZ,
-        FOREARM_SWING_SCALE
-      )
-    );
-  }
-
-  if(b.rightForeArm){
-    b.rightForeArm.rotation.set(
-      pose.foreArmX+
-        cfg.foreArmBaseX+
-        Math.max(0,turnOpp)*cfg.foreArmMoveX*FOREARM_SWING_SCALE,
-      0,
-      THREE.MathUtils.lerp(
-        cfg.rightForeArmZBase,
-        rightForeArmZ,
-        FOREARM_SWING_SCALE
-      )
-    );
-  }
-
-  if(b.leftHand){
-    b.leftHand.rotation.set(
-      getRest(c,b.leftHand).x,
-      getRest(c,b.leftHand).y,
-      getRest(c,b.leftHand).z+
-        turnOpp*cfg.handZ*HAND_SWING_SCALE
-    );
-  }
-
-  if(b.rightHand){
-    b.rightHand.rotation.set(
-      getRest(c,b.rightHand).x,
-      getRest(c,b.rightHand).y,
-      getRest(c,b.rightHand).z+
-        turn*cfg.handZ*HAND_SWING_SCALE
-    );
-  }
-}
-
-function capturePlayerPose(state){
-  const snapshot=new Map();
-  for(const bone of state.restQ.keys()){
-    snapshot.set(bone,{
-      quaternion:bone.quaternion.clone(),
-      position:bone.position.clone()
-    });
-  }
-  return snapshot;
-}
-function blendPlayerPoseFromSnapshot(state,snapshot,amount,positionAmount=amount){
-  const targetQ=new THREE.Quaternion();
-  const targetP=new THREE.Vector3();
-  for(const bone of state.restQ.keys()){
-    const previous=snapshot.get(bone);
-    if(!previous) continue;
-    targetQ.copy(bone.quaternion);
-    bone.quaternion.copy(previous.quaternion).slerp(targetQ,amount);
-    targetP.copy(bone.position);
-    bone.position.copy(previous.position).lerp(targetP,positionAmount);
-  }
-}
-function solvePlayerFloorCollision(c,state){
-  return solveCharacterFloorContact({
-    THREE,
-    character:c,
-    player,
-    state,
-    floorClearance:PLAYER_PROCEDURAL_WALK_CONFIG.floorClearance
-  });
-}
-
-function applyPlayerRealFingerCurl(c,state,lateralTurnOnly,comboTurn=false){
-  const fingers=state?.fingers||[];
-  if(!fingers.length) return;
-
-  const phase=state.phase||0;
-  const walkPulse=(Math.sin(phase*1.15)+1)*.5;
-
-
-  const baseCurl=(lateralTurnOnly || comboTurn)
-    ? 0
-    : PLAYER_HAND_TUNING.walkFingerCurl;
-
-  const leftScale=PLAYER_HAND_TUNING.walkFingerCurlLeft ?? 1;
-  const rightScale=PLAYER_HAND_TUNING.walkFingerCurlRight ?? 1;
-
-  for(const f of fingers){
-    if(!f?.bone || !state.restQ.has(f.bone)) continue;
-
-    const n=String(f.name||f.bone.name||"").toLowerCase();
-    const isThumb=n.includes("thumb");
-    const m=n.match(/(?:thumb|index|middle|ring|pinky|little)[^0-9]*([1-4])/);
-    const segment=m ? Number(m[1]) : 2;
-
-
-    const segmentGain=
-      segment===1 ? .70 :
-      segment===2 ? .95 :
-      segment===3 ? 1.08 :
-      1.14;
-
-    const sideScale=f.side==="left" ? leftScale : rightScale;
-    const sideSign=f.side==="left" ? 1 : -1;
-
-
-    const closeRadians=(isThumb ? .32 : .46) * baseCurl * segmentGain * sideScale;
-    const gaitVariation=lateralTurnOnly ? 1 : (.88 + walkPulse*.12);
-
-    setPlayerBoneAxisRotation(
-      c,state,f.bone,PLAYER_AXIS_RIGHT,
-      closeRadians*gaitVariation*sideSign
-    );
-
-
-    if(isThumb){
-      addPlayerBoneAxisRotation(
-        c,f.bone,PLAYER_AXIS_UP,
-        .10*baseCurl*sideScale*(f.side==="left" ? 1 : -1)
-      );
-    }
-  }
-}
-
-
-const AD_TURN_WALK_DEFAULTS=Object.freeze({
-  cycleScale:1.00,
-  legScale:.13,
-  footScale:.075,
-  outsideLiftDeg:1.70,
-  outsideKneeDeg:1.35,
-  outsideFootDeg:.60,
-  footYawDeg:.85,
-  ankleRollDeg:.30,
-  ankleFlexDeg:.35,
-  legYawDeg:.90,
-  kneeYawDeg:.75,
-  armBlend:.62,
-  shoulderSwing:.38,
-  armSwing:.42,
-  forearmSwing:.40,
-  handSwing:.34
-});
 const AD_TURN_WALK={...AD_TURN_WALK_DEFAULTS};
 
-function animatePlayerWalk(c,direction=1,strafe=0){
-if(!c.ready || !c.model) return;
-  const isADTurn=AD_CURRENT_FRAME_ACTIVE===true;
-  const cfg=isADTurn
-    ? PLAYER_PROCEDURAL_TURN_CONFIG
-    : PLAYER_PROCEDURAL_WALK_CONFIG;
-  const state=getPlayerProceduralState(c);
-  const b=state.bones;
-  const now=performance.now();
-  const delta=Math.min((now-state.lastTime)/1000,0.05);
-  state.lastTime=now;
-  const gaitDirection=direction<0 ? -1 : 1;
-  const gaitSpeed=direction<0 ? .68 : 1.0;
-const lateralTurnOnly=
-    Math.abs(strafe)>.001 &&
-    gaitDirection>0;
+// Player animation runtime is now isolated in src/player/PlayerAnimation.js.
+const {
+  animatePlayerWalk,
+  animatePlayerProceduralIdle,
+  softenPlayerADPivotFoot,
+  applyPlayerSoftDirectionalTurn,
+  applyPlayerForwardWalkingTurn,
+  getPlayerProceduralState,
+  getPlayerSoftTurnState,
+  setPlayerBoneAxisRotation,
+  addPlayerBoneAxisRotation,
+  setADCurrentFrameActive,
+  resetPlayerProceduralState
+}=createPlayerAnimationSystem({
+  THREE,
+  getPose,
+  getRest,
+  getBones,
+  solveCharacterFloorContact,
+  normalizeAngle,
+  lerpAngle,
+  getPlayer:()=>player,
+  QUEST,
+  GLOBAL_DIALOGUE_LOCK,
+  PLAYER_HAND_TUNING,
+  PLAYER_TURN_TUNING,
+  AD_CURRENT,
+  PLAYER_PROCEDURAL_WALK_CONFIG,
+  PLAYER_PROCEDURAL_TURN_CONFIG,
+  AD_TURN_WALK
+});
 
-  const soloTurnMotionScale=
-    lateralTurnOnly ? .028 : 1.0;
-
-  const soloTurnLegScale=
-    lateralTurnOnly
-      ? AD_TURN_WALK.legScale
-      : 1.0;
-  state.phase+=
-    delta*
-    cfg.cycleRadiansPerSecond*
-    Math.max(cfg.speed,0.04)*
-    gaitDirection*
-    gaitSpeed*
-    (lateralTurnOnly ? AD_TURN_WALK.cycleScale : 1)*
-    (AD_CURRENT_FRAME_ACTIVE?AD_CURRENT.walkCycleScale:1);
-  const previousPose=capturePlayerPose(state);
-  restorePlayerProceduralPose(state);
-  const left=getPlayerGaitPhase(state.phase);
-  const right=getPlayerGaitPhase(state.phase+Math.PI);
-  const legSign=cfg.invertHips ? -1 : 1;
-  const kneeSign=cfg.invertKnees ? -1 : 1;
-  left.hip*=legSign;
-  right.hip*=legSign;
-  setPlayerBoneAxisRotation(c,state,b.leftUpLeg,PLAYER_AXIS_RIGHT,left.hip*cfg.stride*soloTurnLegScale);
-  setPlayerBoneAxisRotation(c,state,b.rightUpLeg,PLAYER_AXIS_RIGHT,right.hip*cfg.stride*soloTurnLegScale);
-  setPlayerBoneAxisRotation(
-    c,state,b.leftKnee,PLAYER_AXIS_RIGHT,
-    kneeSign*left.knee*cfg.knee*soloTurnLegScale
-  );
-  setPlayerBoneAxisRotation(
-    c,state,b.rightKnee,PLAYER_AXIS_RIGHT,
-    kneeSign*right.knee*cfg.knee*soloTurnLegScale
-  );
-
-
-  const turnFootScale=
-    lateralTurnOnly
-      ? AD_TURN_WALK.footScale
-      : 1.0;
-
-  const turnToeScale=
-    lateralTurnOnly ? 0.0 : 1.0;
-
-  setPlayerBoneAxisRotation(
-    c,state,b.leftFoot,PLAYER_AXIS_RIGHT,
-    left.ankle*cfg.ankle*turnFootScale
-  );
-
-
-  setPlayerBoneAxisRotation(
-    c,state,b.rightFoot,PLAYER_AXIS_RIGHT,
-    lateralTurnOnly ? 0 : right.ankle*cfg.ankle
-  );
-  setPlayerBoneAxisRotation(
-    c,state,b.leftToe,PLAYER_AXIS_RIGHT,
-    left.toe*cfg.toeFactor*turnToeScale
-  );
-  setPlayerBoneAxisRotation(
-    c,state,b.rightToe,PLAYER_AXIS_RIGHT,
-    right.toe*cfg.toeFactor*turnToeScale
-  );
-
-  if(lateralTurnOnly){
-
-
-    const turnDir=Math.sign(strafe)||0;
-
-
-    const leftPivotWeight=
-      turnDir<0 ? .05 : 1.0;
-
-    const rightPivotWeight=
-      turnDir>0 ? .05 : 1.0;
-
-
-    const stepWave=
-      Math.max(0,Math.sin(state.phase*.82));
-
-    const outsideLift=
-      THREE.MathUtils.degToRad(AD_TURN_WALK.outsideLiftDeg)*
-      stepWave;
-
-    const outsideKnee=
-      THREE.MathUtils.degToRad(AD_TURN_WALK.outsideKneeDeg)*
-      stepWave;
-
-    const outsideFootFlex=
-      THREE.MathUtils.degToRad(AD_TURN_WALK.outsideFootDeg)*
-      stepWave;
-
-
-    if(turnDir<0){
-      addPlayerBoneAxisRotation(
-        c,b.rightUpLeg,
-        PLAYER_AXIS_RIGHT,
-        -outsideLift
-      );
-      addPlayerBoneAxisRotation(
-        c,b.rightKnee,
-        PLAYER_AXIS_RIGHT,
-        outsideKnee
-      );
-      addPlayerBoneAxisRotation(
-        c,b.rightFoot,
-        PLAYER_AXIS_RIGHT,
-        outsideFootFlex*.35
-      );
-    }
-
-
-    if(turnDir>0){
-      addPlayerBoneAxisRotation(
-        c,b.leftUpLeg,
-        PLAYER_AXIS_RIGHT,
-        -outsideLift
-      );
-      addPlayerBoneAxisRotation(
-        c,b.leftKnee,
-        PLAYER_AXIS_RIGHT,
-        outsideKnee
-      );
-      addPlayerBoneAxisRotation(
-        c,b.leftFoot,
-        PLAYER_AXIS_RIGHT,
-        outsideFootFlex*.80
-      );
-    }
-
-    const footYaw=
-      THREE.MathUtils.degToRad(AD_TURN_WALK.footYawDeg)*
-      -turnDir;
-
-    addPlayerBoneAxisRotation(
-      c,b.leftFoot,
-      PLAYER_AXIS_UP,
-      footYaw*leftPivotWeight*
-        (turnDir>0 ? 1.62 : 1.0)
-    );
-
-    addPlayerBoneAxisRotation(
-      c,b.rightFoot,
-      PLAYER_AXIS_UP,
-      footYaw*rightPivotWeight*
-        (turnDir<0 ? 1.62 : 1.0)
-    );
-
-
-    const footPhase=
-      Math.sin(state.phase*.92);
-
-    const ankleRoll=
-      THREE.MathUtils.degToRad(AD_TURN_WALK.ankleRollDeg)*
-      footPhase;
-
-    const ankleFlex=
-      THREE.MathUtils.degToRad(AD_TURN_WALK.ankleFlexDeg)*
-      Math.sin(state.phase*.92+Math.PI*.5);
-
-
-    addPlayerBoneAxisRotation(
-      c,b.leftFoot,
-      PLAYER_AXIS_FORWARD,
-      ankleRoll*turnDir*leftPivotWeight
-    );
-
-    addPlayerBoneAxisRotation(
-      c,b.rightFoot,
-      PLAYER_AXIS_FORWARD,
-      -ankleRoll*turnDir*rightPivotWeight
-    );
-
-    addPlayerBoneAxisRotation(
-      c,b.leftFoot,
-      PLAYER_AXIS_RIGHT,
-      ankleFlex
-    );
-
-
-    addPlayerBoneAxisRotation(
-      c,b.rightFoot,
-      PLAYER_AXIS_RIGHT,
-      -ankleFlex*.38
-    );
-
-
-    const legTurnYaw=
-      THREE.MathUtils.degToRad(AD_TURN_WALK.legYawDeg)*
-      -turnDir;
-
-    const kneeTurnYaw=
-      THREE.MathUtils.degToRad(AD_TURN_WALK.kneeYawDeg)*
-      -turnDir;
-
-    addPlayerBoneAxisRotation(
-      c,b.leftUpLeg,
-      PLAYER_AXIS_UP,
-      legTurnYaw
-    );
-
-    addPlayerBoneAxisRotation(
-      c,b.rightUpLeg,
-      PLAYER_AXIS_UP,
-      legTurnYaw
-    );
-
-    addPlayerBoneAxisRotation(
-      c,b.leftKnee,
-      PLAYER_AXIS_UP,
-      kneeTurnYaw
-    );
-
-    addPlayerBoneAxisRotation(
-      c,b.rightKnee,
-      PLAYER_AXIS_UP,
-      kneeTurnYaw
-    );
-
-    const toeYaw=
-      THREE.MathUtils.degToRad(PLAYER_HAND_TUNING.turnWristYawDeg)*
-      -turnDir;
-
-    addPlayerBoneAxisRotation(
-      c,b.leftToe,
-      PLAYER_AXIS_UP,
-      toeYaw
-    );
-
-    addPlayerBoneAxisRotation(
-      c,b.rightToe,
-      PLAYER_AXIS_UP,
-      toeYaw
-    );
-  }
-
-
-  if(lateralTurnOnly){
-    const armBones=[
-      b.leftShoulder,b.rightShoulder,
-      b.leftArm,b.rightArm,
-      b.leftForeArm,b.rightForeArm,
-      b.leftHand,b.rightHand
-    ];
-    const beforeArmQ=new Map();
-
-    for(const bone of armBones){
-      if(bone) beforeArmQ.set(bone,bone.quaternion.clone());
-    }
-
-    applyPlayerOldArmsTurn(c,state,state.phase);
-
-    for(const bone of armBones){
-      const before=beforeArmQ.get(bone);
-      if(before){
-        bone.quaternion.slerpQuaternions(
-          before,
-          bone.quaternion,
-          AD_TURN_WALK.armBlend
-        );
-      }
-    }
-  }else{
-    applyPlayerOldArms(c,state,state.phase,true);
-  }
-
-
-  const armWave=(Math.sin(state.phase))*soloTurnMotionScale;
-  const armOpp=-armWave;
-  const backwardFactor=gaitDirection<0 ? .82 : 1.0;
-  const shoulderCounter=PLAYER_HAND_TUNING.walkShoulderCounter*backwardFactor;
-  const foreTwist=PLAYER_HAND_TUNING.walkForeTwist*backwardFactor;
-  const wristSwing=PLAYER_HAND_TUNING.walkWristSwing*backwardFactor;
-  const wristRoll=PLAYER_HAND_TUNING.walkWristRollRaw*backwardFactor;
-
-  addPlayerBoneAxisRotation(c,b.leftShoulder,PLAYER_AXIS_UP,armOpp*shoulderCounter);
-  addPlayerBoneAxisRotation(c,b.rightShoulder,PLAYER_AXIS_UP,armWave*shoulderCounter);
-
-  addPlayerBoneAxisRotation(c,b.leftForeArm,PLAYER_AXIS_UP,armWave*foreTwist);
-  addPlayerBoneAxisRotation(c,b.rightForeArm,PLAYER_AXIS_UP,armOpp*foreTwist);
-
-  addPlayerBoneAxisRotation(c,b.leftHand,PLAYER_AXIS_RIGHT,armWave*wristSwing);
-  addPlayerBoneAxisRotation(c,b.rightHand,PLAYER_AXIS_RIGHT,armOpp*wristSwing);
-  addPlayerBoneAxisRotation(c,b.leftHand,PLAYER_AXIS_FORWARD,armOpp*wristRoll);
-  addPlayerBoneAxisRotation(c,b.rightHand,PLAYER_AXIS_FORWARD,armWave*wristRoll);
-
-
-  const handFlexWave=Math.sin(state.phase*1.45);
-  const handTwistWave=Math.sin(state.phase*1.45+Math.PI*.5);
-
-
-  const turnHandWave=
-    lateralTurnOnly
-      ? Math.sin(state.phase*1.10)
-      : 0;
-
-  const turnHandTwist=
-    lateralTurnOnly
-      ? Math.sin(state.phase*1.10+Math.PI*.5)
-      : 0;
-
-  addPlayerBoneAxisRotation(
-    c,b.leftHand,
-    PLAYER_AXIS_RIGHT,
-    (lateralTurnOnly ? turnHandWave*PLAYER_HAND_TUNING.turnHandFollowFlex : handFlexWave*PLAYER_HAND_TUNING.walkExtraFlex)*soloTurnMotionScale
-  );
-  addPlayerBoneAxisRotation(
-    c,b.rightHand,
-    PLAYER_AXIS_RIGHT,
-    -(lateralTurnOnly ? turnHandWave*PLAYER_HAND_TUNING.turnHandFollowFlex : handFlexWave*PLAYER_HAND_TUNING.walkExtraFlex)*soloTurnMotionScale
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.leftHand,
-    PLAYER_AXIS_UP,
-    (lateralTurnOnly ? turnHandTwist*PLAYER_HAND_TUNING.turnHandFollowTwist : handTwistWave*PLAYER_HAND_TUNING.walkExtraTwist)*soloTurnMotionScale
-  );
-  addPlayerBoneAxisRotation(
-    c,b.rightHand,
-    PLAYER_AXIS_UP,
-    -(lateralTurnOnly ? turnHandTwist*PLAYER_HAND_TUNING.turnHandFollowTwist : handTwistWave*PLAYER_HAND_TUNING.walkExtraTwist)*soloTurnMotionScale
-  );
-
-  applyPlayerFingerCurl(
-    c,
-    state,
-    state.phase,
-    lateralTurnOnly ? PLAYER_HAND_TUNING.turnFingerCurl : PLAYER_HAND_TUNING.walkFingerCurl
-  );
-
-  const turnBodyScale=
-    lateralTurnOnly
-      ? .10
-      : 1.0;
-  const pelvisTwist=Math.sin(state.phase)*cfg.pelvisTwist*turnBodyScale;
-  const pelvisRoll=Math.sin(state.phase*2)*cfg.pelvisRoll*turnBodyScale;
-  const bodyBreath=Math.sin(state.phase*2)*cfg.breathingSway*turnBodyScale;
-
-
-  const travelLean=
-    gaitDirection<0
-      ? -0.012
-      : (lateralTurnOnly
-          ? 0.0015
-          : 0.010);
-  setPlayerBoneAxisRotation(c,state,b.hips,PLAYER_AXIS_UP,pelvisTwist);
-  addPlayerBoneAxisRotation(c,b.hips,PLAYER_AXIS_FORWARD,pelvisRoll);
-  setPlayerBoneAxisRotation(c,state,b.spine,PLAYER_AXIS_UP,-pelvisTwist*0.30);
-  addPlayerBoneAxisRotation(c,b.spine,PLAYER_AXIS_RIGHT,bodyBreath+travelLean);
-  addPlayerBoneAxisRotation(c,b.spine1,PLAYER_AXIS_RIGHT,travelLean*.55);
-  setPlayerBoneAxisRotation(c,state,b.spine1,PLAYER_AXIS_UP,-pelvisTwist*0.20);
-  addPlayerBoneAxisRotation(c,b.spine1,PLAYER_AXIS_RIGHT,bodyBreath*0.55);
-  setPlayerBoneAxisRotation(c,state,b.spine2,PLAYER_AXIS_UP,-pelvisTwist*0.12);
-  addPlayerBoneAxisRotation(c,b.spine2,PLAYER_AXIS_RIGHT,bodyBreath*0.25);
-  setPlayerBoneAxisRotation(c,state,b.neck,PLAYER_AXIS_UP,pelvisTwist*0.08);
-  setPlayerBoneAxisRotation(c,state,b.head,PLAYER_AXIS_UP,pelvisTwist*0.035);
-  if(b.hips && state.restP.has(b.hips)){
-    b.hips.position.copy(state.restP.get(b.hips));
-    const turnBodyPosScale=
-      1;
-    b.hips.position.x+=Math.sin(state.phase)*0.018*turnBodyPosScale;
-    b.hips.position.y+=Math.cos(state.phase*2)*0.018*turnBodyPosScale;
-    b.hips.position.z+=
-      Math.sin(state.phase)*
-      (lateralTurnOnly ? 0.0025 : 0.010)*
-      turnBodyPosScale;
-  }
-  blendPlayerPoseFromSnapshot(
-    state,
-    previousPose,
-    cfg.walkPoseLerp,
-    cfg.walkPoseLerp
-  );
-
-
-  if(!lateralTurnOnly){
-    const walkHandWave=
-      Math.sin(state.phase);
-
-    const walkHandWaveOpp=
-      Math.sin(state.phase+Math.PI);
-
-    const walkHandTwist=
-      Math.sin(state.phase+Math.PI*.5);
-
-    const walkHandFlex=
-      THREE.MathUtils.degToRad(PLAYER_HAND_TUNING.walkWristFlexDeg);
-
-    const walkHandYaw=
-      THREE.MathUtils.degToRad(PLAYER_HAND_TUNING.walkWristYawDeg);
-
-    const walkHandRoll=
-      THREE.MathUtils.degToRad(PLAYER_HAND_TUNING.walkWristRollDeg);
-
-    addPlayerBoneAxisRotation(
-      c,b.leftHand,
-      PLAYER_AXIS_RIGHT,
-      walkHandWave*walkHandFlex
-    );
-
-    addPlayerBoneAxisRotation(
-      c,b.rightHand,
-      PLAYER_AXIS_RIGHT,
-      walkHandWaveOpp*walkHandFlex
-    );
-
-    addPlayerBoneAxisRotation(
-      c,b.leftHand,
-      PLAYER_AXIS_UP,
-      walkHandTwist*walkHandYaw
-    );
-
-    addPlayerBoneAxisRotation(
-      c,b.rightHand,
-      PLAYER_AXIS_UP,
-      -walkHandTwist*walkHandYaw
-    );
-
-    addPlayerBoneAxisRotation(
-      c,b.leftHand,
-      PLAYER_AXIS_FORWARD,
-      -walkHandWave*.85*walkHandRoll
-    );
-
-    addPlayerBoneAxisRotation(
-      c,b.rightHand,
-      PLAYER_AXIS_FORWARD,
-      walkHandWaveOpp*.85*walkHandRoll
-    );
-  }
-
-
-  if(lateralTurnOnly){
-    const handFlex=
-      THREE.MathUtils.degToRad(PLAYER_HAND_TUNING.turnWristFlexDeg)*
-      turnHandWave;
-
-    const handYaw=
-      THREE.MathUtils.degToRad(PLAYER_HAND_TUNING.turnWristYawDeg)*
-      turnHandTwist;
-
-    const handRoll=
-      THREE.MathUtils.degToRad(PLAYER_HAND_TUNING.turnWristRollDeg)*
-      turnHandWave;
-
-    const foreYaw=
-      THREE.MathUtils.degToRad(PLAYER_HAND_TUNING.turnForeYawDeg)*
-      turnHandWave;
-
-    const armFollow=
-      THREE.MathUtils.degToRad(PLAYER_HAND_TUNING.turnArmFollowDeg)*
-      turnHandWave;
-
-
-    addPlayerBoneAxisRotation(
-      c,b.leftHand,
-      PLAYER_AXIS_RIGHT,
-      handFlex
-    );
-    addPlayerBoneAxisRotation(
-      c,b.rightHand,
-      PLAYER_AXIS_RIGHT,
-      -handFlex
-    );
-
-    addPlayerBoneAxisRotation(
-      c,b.leftHand,
-      PLAYER_AXIS_UP,
-      handYaw
-    );
-    addPlayerBoneAxisRotation(
-      c,b.rightHand,
-      PLAYER_AXIS_UP,
-      -handYaw
-    );
-
-    addPlayerBoneAxisRotation(
-      c,b.leftHand,
-      PLAYER_AXIS_FORWARD,
-      -handRoll
-    );
-    addPlayerBoneAxisRotation(
-      c,b.rightHand,
-      PLAYER_AXIS_FORWARD,
-      handRoll
-    );
-
-    addPlayerBoneAxisRotation(
-      c,b.leftForeArm,
-      PLAYER_AXIS_UP,
-      foreYaw
-    );
-    addPlayerBoneAxisRotation(
-      c,b.rightForeArm,
-      PLAYER_AXIS_UP,
-      -foreYaw
-    );
-
-    addPlayerBoneAxisRotation(
-      c,b.leftArm,
-      PLAYER_AXIS_RIGHT,
-      armFollow
-    );
-    addPlayerBoneAxisRotation(
-      c,b.rightArm,
-      PLAYER_AXIS_RIGHT,
-      -armFollow
-    );
-
-
-    const shoulderFollow=
-      THREE.MathUtils.degToRad(PLAYER_HAND_TUNING.turnShoulderFollowDeg)*
-      turnHandWave;
-
-    addPlayerBoneAxisRotation(
-      c,b.leftShoulder,
-      PLAYER_AXIS_RIGHT,
-      shoulderFollow
-    );
-    addPlayerBoneAxisRotation(
-      c,b.rightShoulder,
-      PLAYER_AXIS_RIGHT,
-      -shoulderFollow
-    );
-
-
-    const torsoFollow=
-      THREE.MathUtils.degToRad(.58)*
-      turnHandWave;
-
-    const neckFollow=
-      THREE.MathUtils.degToRad(.30)*
-      turnHandTwist;
-
-    addPlayerBoneAxisRotation(
-      c,b.spine1,
-      PLAYER_AXIS_UP,
-      torsoFollow
-    );
-    addPlayerBoneAxisRotation(
-      c,b.spine2,
-      PLAYER_AXIS_UP,
-      torsoFollow*.72
-    );
-    addPlayerBoneAxisRotation(
-      c,b.neck,
-      PLAYER_AXIS_UP,
-      neckFollow
-    );
-    addPlayerBoneAxisRotation(
-      c,b.head,
-      PLAYER_AXIS_UP,
-      neckFollow*.40
-    );
-  }
-
-  const comboTurnForHands=!lateralTurnOnly && Math.abs(strafe)>0.01 && Math.abs(direction)>0.01;
-  applyPlayerRealFingerCurl(c,state,lateralTurnOnly,comboTurnForHands);
-  if(AD_CURRENT_FRAME_ACTIVE){
-    const scaleFromRest=(bone,amount)=>{
-      const rest=state.restQ?.get(bone);
-      if(!bone||!rest||Math.abs(amount-1)<.000001)return;
-      bone.quaternion.slerpQuaternions(rest,bone.quaternion,amount);
-    };
-    [b.leftUpLeg,b.rightUpLeg,b.leftKnee,b.rightKnee].forEach(x=>scaleFromRest(x,AD_CURRENT.legMotionScale));
-    [b.leftFoot,b.rightFoot,b.leftToe,b.rightToe].forEach(x=>scaleFromRest(x,AD_CURRENT.footMotionScale));
-    [b.hips,b.spine,b.spine1,b.spine2,b.neck,b.head].forEach(x=>scaleFromRest(x,AD_CURRENT.bodyWalkScale));
-    [b.leftShoulder,b.rightShoulder,b.leftArm,b.rightArm,b.leftForeArm,b.rightForeArm,b.leftHand,b.rightHand].forEach(x=>scaleFromRest(x,AD_CURRENT.baseArmAnimationScale));
-  }
-  c.model.updateMatrixWorld(true);
-  solvePlayerFloorCollision(c,state);
-}
-
-const PLAYER_SOFT_TURN_STATE=new WeakMap();
-
-function getPlayerSoftTurnState(c){
-  let state=PLAYER_SOFT_TURN_STATE.get(c);
-  if(!state){
-    state={
-      targetYaw:0,
-      amount:0
-    };
-    PLAYER_SOFT_TURN_STATE.set(c,state);
-  }
-  return state;
-}
-
-
-function softenPlayerADPivotFoot(c,sideInput){
-  if(!c?.ready || !sideInput) return;
-
-  const state=getPlayerProceduralState(c);
-  const b=state?.bones;
-  if(!b) return;
-
-
-  const pivotFoot=sideInput<0 ? b.leftFoot : b.rightFoot;
-  if(!pivotFoot) return;
-
-  const restQ=state.restQ?.get(pivotFoot);
-  if(!restQ) return;
-
-
-  const PIVOT_FOOT_MOTION=AD_CURRENT.pivotMotion;
-
-  pivotFoot.quaternion.slerpQuaternions(
-    restQ,
-    pivotFoot.quaternion,
-    PIVOT_FOOT_MOTION
-  );
-}
-
-function applyPlayerSoftDirectionalTurn(c,targetYaw){
-
-  const AD_ARM_MOTION_SCALE=AD_CURRENT.turnArmOverlayScale; 
-
-  if(!c?.ready || !c?.root || !c?.model) return false;
-
-  const root=c.root;
-  const procedural=getPlayerProceduralState(c);
-  const b=procedural.bones;
-  const state=getPlayerSoftTurnState(c);
-
-  state.targetYaw=targetYaw;
-
-  const delta=normalizeAngle(targetYaw-root.rotation.y);
-  const absDelta=Math.abs(delta);
-
-  if(absDelta<THREE.MathUtils.degToRad(AD_CURRENT.snapDeg)){
-    root.rotation.y=targetYaw;
-    state.amount=THREE.MathUtils.lerp(state.amount,0,.18);
-    return false;
-  }
-
-  const direction=Math.sign(delta)||1;
-  const turnStrength=THREE.MathUtils.clamp(
-    absDelta/THREE.MathUtils.degToRad(AD_CURRENT.fullStrengthDeg),
-    0,
-    1
-  );
-
-
-  const rootTurnLerp=THREE.MathUtils.lerp(
-    AD_CURRENT.rootLerpMin,
-    AD_CURRENT.rootLerpMax,
-    turnStrength
-  );
-
-  root.rotation.y=lerpAngle(
-    root.rotation.y,
-    targetYaw,
-    rootTurnLerp
-  );
-
-  state.amount=THREE.MathUtils.lerp(
-    state.amount,
-    direction*turnStrength,
-    AD_CURRENT.bodyResponseLerp
-  );
-
-  const a=state.amount;
-
-
-  addPlayerBoneAxisRotation(
-    c,b.hips,
-    PLAYER_AXIS_UP,
-    a*.032
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.spine,
-    PLAYER_AXIS_UP,
-    a*.046
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.spine1,
-    PLAYER_AXIS_UP,
-    a*.034
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.spine2,
-    PLAYER_AXIS_UP,
-    a*.011
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.neck,
-    PLAYER_AXIS_UP,
-    a*.024
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.head,
-    PLAYER_AXIS_UP,
-    a*.024
-  );
-
-
-  addPlayerBoneAxisRotation(
-    c,b.hips,
-    PLAYER_AXIS_FORWARD,
-    -a*.008
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.spine,
-    PLAYER_AXIS_FORWARD,
-    -a*.012
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.spine1,
-    PLAYER_AXIS_FORWARD,
-    -a*.008
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.neck,
-    PLAYER_AXIS_FORWARD,
-    -a*.006
-  );
-
-
-  addPlayerBoneAxisRotation(
-    c,b.leftShoulder,
-    PLAYER_AXIS_FORWARD,
-    a*(.016*AD_ARM_MOTION_SCALE)
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.rightShoulder,
-    PLAYER_AXIS_FORWARD,
-    -a*(.011*AD_ARM_MOTION_SCALE)
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.leftShoulder,
-    PLAYER_AXIS_UP,
-    a*(.012*AD_ARM_MOTION_SCALE)
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.rightShoulder,
-    PLAYER_AXIS_UP,
-    a*(.018*AD_ARM_MOTION_SCALE)
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.leftArm,
-    PLAYER_AXIS_UP,
-    -a*(.018*AD_ARM_MOTION_SCALE)
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.rightArm,
-    PLAYER_AXIS_UP,
-    -a*(.018*AD_ARM_MOTION_SCALE)
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.leftForeArm,
-    PLAYER_AXIS_UP,
-    a*(.026*AD_ARM_MOTION_SCALE)
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.rightForeArm,
-    PLAYER_AXIS_UP,
-    a*(.026*AD_ARM_MOTION_SCALE)
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.leftForeArm,
-    PLAYER_AXIS_FORWARD,
-    a*(.010*AD_ARM_MOTION_SCALE)
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.rightForeArm,
-    PLAYER_AXIS_FORWARD,
-    -a*(.010*AD_ARM_MOTION_SCALE)
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.leftHand,
-    PLAYER_AXIS_UP,
-    a*(.014*AD_ARM_MOTION_SCALE)
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.rightHand,
-    PLAYER_AXIS_UP,
-    a*(.021*AD_ARM_MOTION_SCALE)
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.leftHand,
-    PLAYER_AXIS_FORWARD,
-    a*(.014*AD_ARM_MOTION_SCALE)
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.rightHand,
-    PLAYER_AXIS_FORWARD,
-    -a*(.014*AD_ARM_MOTION_SCALE)
-  );
-
-  c.model.updateMatrixWorld(true);
-  return true;
-}
-
-function applyPlayerForwardWalkingTurn(c,targetYaw){
-  if(!c?.ready || !c?.root || !c?.model) return false;
-
-  const root=c.root;
-  const procedural=getPlayerProceduralState(c);
-  const b=procedural.bones;
-  const state=getPlayerSoftTurnState(c);
-
-  const delta=normalizeAngle(targetYaw-root.rotation.y);
-  const absDelta=Math.abs(delta);
-
-  if(absDelta<THREE.MathUtils.degToRad(PLAYER_TURN_TUNING.forwardSnapThresholdDeg)){
-    root.rotation.y=targetYaw;
-    state.amount=THREE.MathUtils.lerp(
-      state.amount,
-      0,
-      .10
-    );
-    return false;
-  }
-
-  const direction=Math.sign(delta)||1;
-
-  const turnStrength=THREE.MathUtils.clamp(
-    absDelta/THREE.MathUtils.degToRad(PLAYER_TURN_TUNING.forwardFullStrengthDeg),
-    0,
-    1
-  );
-
-
-  const rootTurnLerp=THREE.MathUtils.lerp(
-    PLAYER_TURN_TUNING.forwardTurnLerpMin,
-    PLAYER_TURN_TUNING.forwardTurnLerpMax,
-    turnStrength
-  );
-
-  root.rotation.y=lerpAngle(
-    root.rotation.y,
-    targetYaw,
-    rootTurnLerp
-  );
-
-
-  const targetBody=
-    direction*
-    turnStrength*
-    PLAYER_TURN_TUNING.forwardBodyTarget;
-
-  state.amount=THREE.MathUtils.lerp(
-    state.amount,
-    targetBody,
-    PLAYER_TURN_TUNING.forwardBodyLerp
-  );
-
-  const a=state.amount;
-
-  addPlayerBoneAxisRotation(
-    c,b.hips,
-    PLAYER_AXIS_UP,
-    a*.018
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.spine,
-    PLAYER_AXIS_UP,
-    a*.026
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.spine1,
-    PLAYER_AXIS_UP,
-    a*.024
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.spine2,
-    PLAYER_AXIS_UP,
-    a*.016
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.neck,
-    PLAYER_AXIS_UP,
-    a*.012
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.head,
-    PLAYER_AXIS_UP,
-    a*.006
-  );
-
-
-  addPlayerBoneAxisRotation(
-    c,b.leftShoulder,
-    PLAYER_AXIS_FORWARD,
-    a*.006
-  );
-
-  addPlayerBoneAxisRotation(
-    c,b.rightShoulder,
-    PLAYER_AXIS_FORWARD,
-    -a*.006
-  );
-
-  c.model.updateMatrixWorld(true);
-  return true;
-}
-
-function applyPlayerDialogueFist(c,state,amount,phase){
-  const fingers=state.fingers||[];
-  if(!fingers.length || amount<=.0001) return;
-
-
-  const talkPulse=(Math.sin(phase*.82)+1)*.5;
-
-  for(const f of fingers){
-    if(!f?.bone || !state.restQ.has(f.bone)) continue;
-
-    const n=String(f.name||"").toLowerCase();
-    const isThumb=f.finger==="thumb" || n.includes("thumb");
-
-    const segmentMatch=n.match(
-      /(?:thumb|index|middle|ring|pinky|little)[^0-9]*([1-4])/
-    );
-    const segment=segmentMatch ? Number(segmentMatch[1]) : 2;
-
-    const segmentGain=
-      segment<=1 ? .72 :
-      segment===2 ? 1.00 :
-      segment===3 ? 1.12 :
-      1.18;
-
-
-    const relaxed=isThumb ? .035 : .060;
-    const closeAmount=isThumb ? .105 : .185;
-
-    const curl=
-      (relaxed+talkPulse*closeAmount)*
-      segmentGain*
-      amount;
-
-    const sideSign=f.side==="left" ? 1 : -1;
-
-    setPlayerBoneAxisRotation(
-      c,
-      state,
-      f.bone,
-      PLAYER_AXIS_RIGHT,
-      curl*sideSign
-    );
-  }
-}
-
-function animatePlayerProceduralIdle(c){
-  if(!c.ready || !c.model) return;
-  const cfg=PLAYER_PROCEDURAL_WALK_CONFIG;
-  const state=getPlayerProceduralState(c);
-  const now=performance.now();
-  state.lastTime=now;
-  const previousPose=capturePlayerPose(state);
-  restorePlayerProceduralPose(state);
-  applyPlayerOldArms(c,state,state.phase,false);
-
-  const idleSeconds=now*0.001;
-  const idleSlow=Math.sin(idleSeconds*1.15);
-  const idleBreath=Math.sin(idleSeconds*1.85);
-  const idleMicro=Math.sin(idleSeconds*0.63);
-
-  const dialogueFistTarget=
-    (QUEST.dialogueActive || GLOBAL_DIALOGUE_LOCK.active)
-      ? 1
-      : 0;
-
-  state.dialogueFistAmount=THREE.MathUtils.lerp(
-    state.dialogueFistAmount||0,
-    dialogueFistTarget,
-    dialogueFistTarget ? .18 : .12
-  );
-  setPlayerBoneAxisRotation(
-    c,state,state.bones.spine,PLAYER_AXIS_RIGHT,
-    idleBreath*0.006
-  );
-  addPlayerBoneAxisRotation(
-    c,state,state.bones.spine,PLAYER_AXIS_UP,
-    idleSlow*0.0035
-  );
-  setPlayerBoneAxisRotation(
-    c,state,state.bones.spine1,PLAYER_AXIS_RIGHT,
-    idleBreath*0.0045
-  );
-  addPlayerBoneAxisRotation(
-    c,state,state.bones.spine1,PLAYER_AXIS_UP,
-    -idleSlow*0.0028
-  );
-  setPlayerBoneAxisRotation(
-    c,state,state.bones.spine2,PLAYER_AXIS_RIGHT,
-    idleBreath*0.003
-  );
-  addPlayerBoneAxisRotation(
-    c,state,state.bones.spine2,PLAYER_AXIS_UP,
-    idleMicro*0.002
-  );
-  setPlayerBoneAxisRotation(
-    c,state,state.bones.neck,PLAYER_AXIS_UP,
-    -idleSlow*0.002
-  );
-  setPlayerBoneAxisRotation(
-    c,state,state.bones.head,PLAYER_AXIS_UP,
-    idleMicro*0.0015
-  );
-  if(state.bones.spine && state.restP.has(state.bones.spine)){
-    state.bones.spine.position.copy(state.restP.get(state.bones.spine));
-    state.bones.spine.position.y+=idleBreath*0.0035;
-  }
-
-  applyPlayerDialogueFist(
-    c,
-    state,
-    state.dialogueFistAmount,
-    idleSeconds
-  );
-
-  blendPlayerPoseFromSnapshot(
-    state,
-    previousPose,
-    cfg.stopPoseLerp,
-    cfg.stopPositionLerp
-  );
-  c.model.updateMatrixWorld(true);
-  solvePlayerFloorCollision(c,state);
-}
-
-const SECURITY_OLD_TALK_PANEL={
-  panel:null,
-  readout:null,
-  initialized:false,
-  agitation:{
-    level:0.95,
-    speed:0.82,
-    shoulders:{amount:0.28,axis:"z"},
-    forearms:{amount:0.88,axis:"z"},
-    hands:{amount:0.88,axis:"xyz"},
-    torso:{amount:0.22,axis:"z"},
-    neck:{amount:0.18,axis:"y"},
-    head:{amount:0.25,axis:"xy"}
-  },
-  target:{
-    leftArm:{x:0,y:0,z:0},
-    rightArm:{x:0,y:0,z:0},
-    leftForeArm:{x:0,y:0,z:0},
-    rightForeArm:{x:0,y:0,z:0},
-    leftHand:{x:0,y:0,z:0},
-    rightHand:{x:0,y:0,z:0}
-  }
-};
-
-function initSecurityOldTalkPanelTargets(c){
-  if(SECURITY_OLD_TALK_PANEL.initialized) return;
-
-  const D=THREE.MathUtils.degToRad;
-
-  SECURITY_OLD_TALK_PANEL.target.leftArm={
-    x:D(62), y:D(0), z:D(0)
-  };
-  SECURITY_OLD_TALK_PANEL.target.leftForeArm={
-    x:D(10), y:D(1), z:D(17)
-  };
-  SECURITY_OLD_TALK_PANEL.target.leftHand={
-    x:D(0), y:D(0), z:D(-18.5)
-  };
-
-  SECURITY_OLD_TALK_PANEL.target.rightArm={
-    x:D(60.5), y:D(0), z:D(0)
-  };
-  SECURITY_OLD_TALK_PANEL.target.rightForeArm={
-    x:D(-1), y:D(1), z:D(-65.5)
-  };
-  SECURITY_OLD_TALK_PANEL.target.rightHand={
-    x:D(10), y:D(0), z:D(-5)
-  };
-
-  SECURITY_OLD_TALK_PANEL.initialized=true;
-}
-
-function securityAddAgitationControls(panel,settings,refreshFn,prefix){
-  const wrap=document.createElement("details");
-  wrap.open=false;
-  Object.assign(wrap.style,{
-    marginTop:"9px",
-    borderTop:"1px solid rgba(255,255,255,.10)",
-    paddingTop:"8px"
-  });
-
-  const summary=document.createElement("summary");
-  summary.textContent="AGITATION CONTROLS";
-  Object.assign(summary.style,{
-    cursor:"pointer",
-    fontWeight:"900",
-    letterSpacing:".06em"
-  });
-  wrap.appendChild(summary);
-
-  const makeSlider=(label,keyObj,key,min,max,step)=>{
-    const row=document.createElement("div");
-    Object.assign(row.style,{
-      display:"grid",
-      gridTemplateColumns:"100px 1fr 46px",
-      gap:"6px",
-      alignItems:"center",
-      margin:"5px 0"
-    });
-
-    const lab=document.createElement("span");
-    lab.textContent=label;
-    lab.style.fontSize="10px";
-
-    const slider=document.createElement("input");
-    slider.type="range";
-    slider.min=String(min);
-    slider.max=String(max);
-    slider.step=String(step);
-    slider.value=String(keyObj[key]);
-
-    const value=document.createElement("span");
-    value.textContent=Number(slider.value).toFixed(2);
-    value.style.textAlign="right";
-    value.style.fontFamily="monospace";
-
-    slider.addEventListener("input",()=>{
-      keyObj[key]=Number(slider.value);
-      value.textContent=Number(slider.value).toFixed(2);
-      refreshFn();
-    });
-
-    row.append(lab,slider,value);
-    wrap.appendChild(row);
-  };
-
-  makeSlider("LEVEL",settings,"level",0,2,.05);
-  makeSlider("SPEED",settings,"speed",.25,2,.05);
-
-  const parts=[
-    ["shoulders","SHOULDERS"],
-    ["forearms","FOREARMS"],
-    ["hands","HANDS"],
-    ["torso","TORSO"],
-    ["neck","NECK"],
-    ["head","HEAD"]
-  ];
-
-  for(const [key,label] of parts){
-    const section=document.createElement("div");
-    Object.assign(section.style,{
-      marginTop:"8px",
-      paddingTop:"7px",
-      borderTop:"1px solid rgba(255,255,255,.07)"
-    });
-
-    const title=document.createElement("div");
-    title.textContent=label;
-    title.style.fontWeight="800";
-    title.style.fontSize="10px";
-    title.style.marginBottom="4px";
-    section.appendChild(title);
-
-    const amtRow=document.createElement("div");
-    Object.assign(amtRow.style,{
-      display:"grid",
-      gridTemplateColumns:"100px 1fr 46px",
-      gap:"6px",
-      alignItems:"center",
-      margin:"4px 0"
-    });
-
-    const amtLab=document.createElement("span");
-    amtLab.textContent="AMOUNT";
-    amtLab.style.fontSize="10px";
-
-    const amt=document.createElement("input");
-    amt.type="range";
-    amt.min="0";
-    amt.max="2";
-    amt.step=".05";
-    amt.value=String(settings[key].amount);
-
-    const amtVal=document.createElement("span");
-    amtVal.textContent=Number(amt.value).toFixed(2);
-    amtVal.style.textAlign="right";
-    amtVal.style.fontFamily="monospace";
-
-    amt.addEventListener("input",()=>{
-      settings[key].amount=Number(amt.value);
-      amtVal.textContent=Number(amt.value).toFixed(2);
-      refreshFn();
-    });
-
-    amtRow.append(amtLab,amt,amtVal);
-    section.appendChild(amtRow);
-
-    const axisRow=document.createElement("div");
-    Object.assign(axisRow.style,{
-      display:"grid",
-      gridTemplateColumns:"100px 1fr",
-      gap:"6px",
-      alignItems:"center",
-      margin:"4px 0"
-    });
-
-    const axisLab=document.createElement("span");
-    axisLab.textContent="DIRECTION";
-    axisLab.style.fontSize="10px";
-
-    const select=document.createElement("select");
-    for(const value of ["x","y","z","xy","xz","yz","xyz"]){
-      const opt=document.createElement("option");
-      opt.value=value;
-      opt.textContent=value.toUpperCase();
-      if(settings[key].axis===value) opt.selected=true;
-      select.appendChild(opt);
-    }
-
-    select.addEventListener("change",()=>{
-      settings[key].axis=select.value;
-      refreshFn();
-    });
-
-    axisRow.append(axisLab,select);
-    section.appendChild(axisRow);
-
-    wrap.appendChild(section);
-  }
-
-  panel.appendChild(wrap);
-}
-
-function refreshSecurityOldTalkPanel(){
-  const read=SECURITY_OLD_TALK_PANEL.readout;
-  if(!read) return;
-
-  const d=v=>Math.round(THREE.MathUtils.radToDeg(v)*10)/10;
-  const lines=["SECURITY TALK · ORIGINAL ANIMATION"];
-
-  for(const [key,v] of Object.entries(SECURITY_OLD_TALK_PANEL.target)){
-    lines.push(`${key}: x ${d(v.x)}° · y ${d(v.y)}° · z ${d(v.z)}°`);
-  }
-
-  const a=SECURITY_OLD_TALK_PANEL.agitation;
-  lines.push("");
-  lines.push(`AGITATION level ${a.level.toFixed(2)} · speed ${a.speed.toFixed(2)}`);
-  lines.push(`forearms ${a.forearms.amount.toFixed(2)} ${a.forearms.axis.toUpperCase()} · hands ${a.hands.amount.toFixed(2)} ${a.hands.axis.toUpperCase()}`);
-  lines.push(`shoulders ${a.shoulders.amount.toFixed(2)} ${a.shoulders.axis.toUpperCase()} · torso ${a.torso.amount.toFixed(2)} ${a.torso.axis.toUpperCase()}`);
-  lines.push(`neck ${a.neck.amount.toFixed(2)} ${a.neck.axis.toUpperCase()} · head ${a.head.amount.toFixed(2)} ${a.head.axis.toUpperCase()}`);
-
-  read.textContent=lines.join("\n");
-}
-
-function ensureSecurityOldTalkPanel(c){
-  initSecurityOldTalkPanelTargets(c);
-
-  if(SECURITY_OLD_TALK_PANEL.panel){
-    return SECURITY_OLD_TALK_PANEL.panel;
-  }
-
-  const panel=document.createElement("div");
-  panel.id="securityOldTalkPanel";
-
-  Object.assign(panel.style,{
-    position:"fixed",
-    right:"18px",
-    top:"90px",
-    width:"285px",
-    maxHeight:"64vh",
-    overflowY:"auto",
-    zIndex:"24750",
-    display:"none",
-    padding:"12px",
-    borderRadius:"11px",
-    background:"rgba(8,10,15,.97)",
-    border:"1px solid rgba(255,190,90,.38)",
-    color:"#fff",
-    font:"12px Arial,sans-serif",
-    boxShadow:"0 14px 38px rgba(0,0,0,.48)"
-  });
-
-  const title=document.createElement("div");
-  title.textContent="SECURITY TALK POSITION";
-  Object.assign(title.style,{
-    font:"900 13px Arial,sans-serif",
-    letterSpacing:".09em",
-    marginBottom:"6px"
-  });
-  panel.appendChild(title);
-
-  const sub=document.createElement("div");
-  sub.textContent=
-    "La TALK resta quella vecchia. Qui cambi solo la posizione verso cui braccia, avambracci e mani interpolano.";
-  Object.assign(sub.style,{
-    color:"rgba(255,255,255,.68)",
-    fontSize:"10px",
-    lineHeight:"1.4",
-    marginBottom:"9px"
-  });
-  panel.appendChild(sub);
-
-  const read=document.createElement("pre");
-  Object.assign(read.style,{
-    whiteSpace:"pre-wrap",
-    margin:"0 0 7px",
-    padding:"6px",
-    maxHeight:"88px",
-    overflowY:"auto",
-    borderRadius:"6px",
-    background:"rgba(255,255,255,.045)",
-    color:"rgba(255,255,255,.72)",
-    font:"9px/1.28 monospace"
-  });
-  panel.appendChild(read);
-  SECURITY_OLD_TALK_PANEL.readout=read;
-
-  const labels={
-    leftArm:"LEFT ARM",
-    leftForeArm:"LEFT FOREARM",
-    leftHand:"LEFT HAND",
-    rightArm:"RIGHT ARM",
-    rightForeArm:"RIGHT FOREARM",
-    rightHand:"RIGHT HAND"
-  };
-
-  for(const [key,labelText] of Object.entries(labels)){
-    const sec=document.createElement("div");
-    Object.assign(sec.style,{
-      borderTop:"1px solid rgba(255,255,255,.08)",
-      paddingTop:"7px",
-      marginTop:"7px"
-    });
-
-    const h=document.createElement("div");
-    h.textContent=labelText;
-    h.style.fontWeight="900";
-    h.style.fontSize="10px";
-    h.style.letterSpacing=".07em";
-    h.style.marginBottom="5px";
-    sec.appendChild(h);
-
-    for(const axis of ["x","y","z"]){
-      const row=document.createElement("div");
-      Object.assign(row.style,{
-        display:"grid",
-        gridTemplateColumns:"18px 1fr 54px",
-        gap:"6px",
-        alignItems:"center",
-        margin:"4px 0"
-      });
-
-      const lab=document.createElement("span");
-      lab.textContent=axis.toUpperCase();
-
-      const slider=document.createElement("input");
-      slider.type="range";
-      slider.min="-180";
-      slider.max="180";
-      slider.step="1";
-      slider.value=String(Math.round(
-        THREE.MathUtils.radToDeg(SECURITY_OLD_TALK_PANEL.target[key][axis])
-      ));
-
-      const val=document.createElement("span");
-      val.textContent=`${slider.value}°`;
-      val.style.textAlign="right";
-
-      slider.addEventListener("input",()=>{
-        SECURITY_OLD_TALK_PANEL.target[key][axis]=
-          THREE.MathUtils.degToRad(Number(slider.value));
-        val.textContent=`${slider.value}°`;
-        refreshSecurityOldTalkPanel();
-      });
-
-      row.append(lab,slider,val);
-      sec.appendChild(row);
-    }
-
-    panel.appendChild(sec);
-  }
-
-  securityAddAgitationControls(
-    panel,
-    SECURITY_OLD_TALK_PANEL.agitation,
-    refreshSecurityOldTalkPanel,
-    "normalTalk"
-  );
-
-  const print=document.createElement("button");
-  print.textContent="PRINT / COPY TALK POSITION";
-  Object.assign(print.style,{
-    width:"100%",
-    marginTop:"10px",
-    padding:"8px",
-    cursor:"pointer",
-    fontWeight:"900"
-  });
-
-  print.addEventListener("click",async()=>{
-    const output={};
-    for(const [key,v] of Object.entries(SECURITY_OLD_TALK_PANEL.target)){
-      output[key]={
-        x:Math.round(THREE.MathUtils.radToDeg(v.x)*10)/10,
-        y:Math.round(THREE.MathUtils.radToDeg(v.y)*10)/10,
-        z:Math.round(THREE.MathUtils.radToDeg(v.z)*10)/10
-      };
-    }
-
-    const txt=
-      "SECURITY TALK POSITION\n"+
-      JSON.stringify(output,null,2)+
-      "\n\nSECURITY TALK AGITATION\n"+
-      JSON.stringify(SECURITY_OLD_TALK_PANEL.agitation,null,2);
-    console.log(txt);
-
-    try{
-      await navigator.clipboard.writeText(txt);
-      print.textContent="COPIED + PRINTED";
-    }catch(e){
-      print.textContent="PRINTED TO CONSOLE";
-    }
-
-    setTimeout(()=>print.textContent="PRINT / COPY TALK POSITION",1400);
-  });
-
-  panel.appendChild(print);
-
-  makeSecurityPanelCollapsible(
-    panel,
-    title,
-    "securityTalkPositionPanelCollapsed"
-  );
-
-  document.body.appendChild(panel);
-
-  SECURITY_OLD_TALK_PANEL.panel=panel;
-  refreshSecurityOldTalkPanel();
-  return panel;
-}
-
-function updateSecurityOldTalkPanel(c){
-  ensureSecurityOldTalkPanel(c);
-}
-
-function mirrorSecurityTalkBoneWorld(c,leftBone,rightBone){
-  if(!c?.root || !leftBone || !rightBone || !rightBone.parent) return;
-
-  c.root.updateMatrixWorld(true);
-
-  const rootRot=new THREE.Matrix4().extractRotation(c.root.matrixWorld);
-  const invRootRot=rootRot.clone().invert();
-  const reflectX=new THREE.Matrix4().makeScale(-1,1,1);
-
-  const leftWorldRot=
-    new THREE.Matrix4().extractRotation(leftBone.matrixWorld);
-
-  const leftCharacterRot=
-    invRootRot.clone().multiply(leftWorldRot);
-
-  const mirroredCharacterRot=
-    reflectX.clone()
-      .multiply(leftCharacterRot)
-      .multiply(reflectX);
-
-  const desiredWorldRot=
-    rootRot.clone().multiply(mirroredCharacterRot);
-
-  const parentWorldRot=
-    new THREE.Matrix4().extractRotation(rightBone.parent.matrixWorld);
-
-  const desiredLocalRot=
-    parentWorldRot.clone().invert().multiply(desiredWorldRot);
-
-  const targetQuat=
-    new THREE.Quaternion().setFromRotationMatrix(desiredLocalRot);
-
-  rightBone.quaternion.slerp(targetQuat,.18);
-  rightBone.updateMatrix();
-  c.root.updateMatrixWorld(true);
-}
 
 function animateTalkSecurity(c){
 
@@ -17897,7 +11925,7 @@ function updatePlayer(){
     if(lateralTurnOnly){
 
 
-      AD_CURRENT_FRAME_ACTIVE=true;
+      setADCurrentFrameActive(true);
       try{
         animatePlayerWalk(
           player,
@@ -17919,7 +11947,7 @@ function updatePlayer(){
           softerADTarget
         );
       }finally{
-        AD_CURRENT_FRAME_ACTIVE=false;
+        setADCurrentFrameActive(false);
       }
     }else{
       animatePlayerWalk(
@@ -18330,15 +12358,7 @@ function updateInteraction(){
   }
   lastE=eDown;
 }
-const NPC_RELEVANCE_CONFIG={
-  nearDistance:25,
-  mediumDistance:60,
-  farDistance:120,
-  nearEvery:1,
-  mediumEvery:2,
-  farEvery:4,
-  veryFarEvery:12
-};
+
 let NPC_RELEVANCE_TICK=0;
 function shouldUpdateNPCByDistance(npc){
   if(!npc?.ready || !npc?.root) return false;
@@ -18384,362 +12404,6 @@ function shouldUpdateNPCByDistance(npc){
     (NPC_RELEVANCE_TICK+npc.__relevancePhase)%every
   )===0;
 }
-
-const SECURITY_LOWER_BODY_EDITOR={
-  panel:null,
-  readout:null,
-  initialized:false,
-  bones:{},
-  rest:{},
-  offsets:{
-    hips:{x:0,y:0,z:0},
-    leftUpLeg:{x:0,y:0,z:0},
-    rightUpLeg:{x:0,y:0,z:0},
-    leftKnee:{x:0,y:0,z:0},
-    rightKnee:{x:0,y:0,z:0},
-    leftFoot:{x:0,y:0,z:0},
-    rightFoot:{x:0,y:0,z:0},
-    leftToe:{x:0,y:0,z:0},
-    rightToe:{x:0,y:0,z:0}
-  }
-};
-
-function cacheSecurityLowerBodyEditor(){
-  const security=questGetPolice?.();
-  if(!security?.root) return false;
-
-  const b=getBones(security);
-  const map={
-    hips:b.hips,
-    leftUpLeg:b.leftUpLeg,
-    rightUpLeg:b.rightUpLeg,
-    leftKnee:b.leftKnee,
-    rightKnee:b.rightKnee,
-    leftFoot:b.leftFoot,
-    rightFoot:b.rightFoot,
-    leftToe:b.leftToe,
-    rightToe:b.rightToe
-  };
-
-  for(const [key,bone] of Object.entries(map)){
-    if(!bone) continue;
-    SECURITY_LOWER_BODY_EDITOR.bones[key]=bone;
-
-    if(!SECURITY_LOWER_BODY_EDITOR.rest[key]){
-      SECURITY_LOWER_BODY_EDITOR.rest[key]={
-        x:bone.rotation.x,
-        y:bone.rotation.y,
-        z:bone.rotation.z
-      };
-    }
-  }
-
-  SECURITY_LOWER_BODY_EDITOR.initialized=true;
-  return true;
-}
-
-function applySecurityLowerBodyEditor(){
-  const security=questGetPolice?.();
-  if(!security?.root) return;
-
-  if(!cacheSecurityLowerBodyEditor()) return;
-
-  const D=THREE.MathUtils.degToRad;
-
-  for(const [key,off] of Object.entries(SECURITY_LOWER_BODY_EDITOR.offsets)){
-    const bone=SECURITY_LOWER_BODY_EDITOR.bones[key];
-    const rest=SECURITY_LOWER_BODY_EDITOR.rest[key];
-
-    if(!bone || !rest) continue;
-
-    bone.rotation.set(
-      rest.x+D(off.x||0),
-      rest.y+D(off.y||0),
-      rest.z+D(off.z||0)
-    );
-  }
-
-  security.root.updateMatrixWorld(true);
-}
-
-function refreshSecurityLowerBodyEditorReadout(){
-  if(!SECURITY_LOWER_BODY_EDITOR.readout) return;
-
-  const lines=["SECURITY LOWER BODY"];
-
-  for(const [key,v] of Object.entries(SECURITY_LOWER_BODY_EDITOR.offsets)){
-    lines.push(
-      `${key}: x ${Number(v.x).toFixed(1)}° · `+
-      `y ${Number(v.y).toFixed(1)}° · `+
-      `z ${Number(v.z).toFixed(1)}°`
-    );
-  }
-
-  SECURITY_LOWER_BODY_EDITOR.readout.textContent=lines.join("\n");
-}
-
-function ensureSecurityLowerBodyEditor(){
-  if(SECURITY_LOWER_BODY_EDITOR.panel){
-    return SECURITY_LOWER_BODY_EDITOR.panel;
-  }
-
-  const panel=document.createElement("div");
-  panel.id="securityLowerBodyEditor";
-
-  Object.assign(panel.style,{
-    position:"fixed",
-    right:"18px",
-    top:"18px",
-    width:"315px",
-    maxHeight:"82vh",
-    overflowY:"auto",
-    zIndex:"999999",
-    display:"block",
-    padding:"10px",
-    borderRadius:"10px",
-    background:"rgba(8,10,15,.97)",
-    border:"1px solid rgba(110,200,255,.48)",
-    color:"#fff",
-    font:"11px Arial,sans-serif",
-    boxShadow:"0 14px 38px rgba(0,0,0,.48)"
-  });
-
-  const title=document.createElement("div");
-  title.textContent="SECURITY LOWER BODY";
-  Object.assign(title.style,{
-    font:"900 13px Arial,sans-serif",
-    letterSpacing:".07em",
-    marginBottom:"5px"
-  });
-  panel.appendChild(title);
-
-  const sub=document.createElement("div");
-  sub.textContent="Prova pose della parte bassa del Security. Valori relativi alla posa base.";
-  Object.assign(sub.style,{
-    color:"rgba(255,255,255,.66)",
-    fontSize:"10px",
-    lineHeight:"1.35",
-    marginBottom:"7px"
-  });
-  panel.appendChild(sub);
-
-  const read=document.createElement("pre");
-  Object.assign(read.style,{
-    whiteSpace:"pre-wrap",
-    margin:"0 0 8px",
-    padding:"6px",
-    maxHeight:"110px",
-    overflowY:"auto",
-    borderRadius:"6px",
-    background:"rgba(255,255,255,.045)",
-    color:"rgba(255,255,255,.80)",
-    font:"9px/1.3 monospace"
-  });
-  panel.appendChild(read);
-  SECURITY_LOWER_BODY_EDITOR.readout=read;
-
-  const labels={
-    hips:"HIPS",
-    leftUpLeg:"LEFT UPPER LEG",
-    rightUpLeg:"RIGHT UPPER LEG",
-    leftKnee:"LEFT KNEE",
-    rightKnee:"RIGHT KNEE",
-    leftFoot:"LEFT FOOT",
-    rightFoot:"RIGHT FOOT",
-    leftToe:"LEFT TOE",
-    rightToe:"RIGHT TOE"
-  };
-
-  for(const [key,label] of Object.entries(labels)){
-    const section=document.createElement("div");
-    Object.assign(section.style,{
-      borderTop:"1px solid rgba(255,255,255,.08)",
-      paddingTop:"6px",
-      marginTop:"6px"
-    });
-
-    const h=document.createElement("div");
-    h.textContent=label;
-    h.style.fontWeight="900";
-    h.style.fontSize="10px";
-    section.appendChild(h);
-
-    for(const axis of ["x","y","z"]){
-      const row=document.createElement("div");
-      Object.assign(row.style,{
-        display:"grid",
-        gridTemplateColumns:"18px 1fr 56px",
-        gap:"5px",
-        alignItems:"center",
-        margin:"3px 0"
-      });
-
-      const lab=document.createElement("span");
-      lab.textContent=axis.toUpperCase();
-
-      const slider=document.createElement("input");
-      slider.type="range";
-      slider.min="-90";
-      slider.max="90";
-      slider.step=".5";
-      slider.value=String(
-        SECURITY_LOWER_BODY_EDITOR.offsets[key][axis]
-      );
-
-      const val=document.createElement("span");
-      val.textContent=
-        Number(slider.value).toFixed(1)+"°";
-      val.style.textAlign="right";
-      val.style.fontFamily="monospace";
-
-      slider.addEventListener("input",()=>{
-        SECURITY_LOWER_BODY_EDITOR.offsets[key][axis]=
-          Number(slider.value);
-
-        val.textContent=
-          Number(slider.value).toFixed(1)+"°";
-
-        applySecurityLowerBodyEditor();
-        refreshSecurityLowerBodyEditorReadout();
-      });
-
-      row.append(lab,slider,val);
-      section.appendChild(row);
-    }
-
-    panel.appendChild(section);
-  }
-
-  const reset=document.createElement("button");
-  reset.textContent="RESET LOWER BODY";
-  Object.assign(reset.style,{
-    width:"100%",
-    marginTop:"8px",
-    padding:"8px",
-    cursor:"pointer",
-    fontWeight:"900"
-  });
-
-  reset.addEventListener("click",()=>{
-    for(const v of Object.values(SECURITY_LOWER_BODY_EDITOR.offsets)){
-      v.x=0; v.y=0; v.z=0;
-    }
-
-    panel.remove();
-    SECURITY_LOWER_BODY_EDITOR.panel=null;
-    SECURITY_LOWER_BODY_EDITOR.readout=null;
-
-    applySecurityLowerBodyEditor();
-    ensureSecurityLowerBodyEditor();
-  });
-
-  panel.appendChild(reset);
-
-  const print=document.createElement("button");
-  print.textContent="PRINT / COPY LOWER BODY";
-  Object.assign(print.style,{
-    width:"100%",
-    marginTop:"5px",
-    padding:"8px",
-    cursor:"pointer",
-    fontWeight:"900"
-  });
-
-  print.addEventListener("click",async()=>{
-    const txt=
-      "SECURITY LOWER BODY\n"+
-      JSON.stringify(
-        SECURITY_LOWER_BODY_EDITOR.offsets,
-        null,
-        2
-      );
-
-    console.log(txt);
-
-    try{
-      await navigator.clipboard.writeText(txt);
-      print.textContent="COPIED + PRINTED";
-    }catch(e){
-      print.textContent="PRINTED TO CONSOLE";
-    }
-
-    setTimeout(()=>{
-      print.textContent="PRINT / COPY LOWER BODY";
-    },1300);
-  });
-
-  panel.appendChild(print);
-
-  document.body.appendChild(panel);
-  SECURITY_LOWER_BODY_EDITOR.panel=panel;
-
-  refreshSecurityLowerBodyEditorReadout();
-  return panel;
-}
-
-function updateSecurityLowerBodyEditor(){
-  if(SECURITY_LOWER_BODY_EDITOR?.panel){
-    SECURITY_LOWER_BODY_EDITOR.panel.style.setProperty("display","none","important");
-  }
-
-}
-
-const SECURITY_TURN_POSE_EDITOR={
-  panel:null,
-  closed:false,
-  readout:null,
-  initialized:false,
-  activePose:"start",
-  bones:{},
-  rest:{},
-  poses:{
-    start:{
-      hips:{x:0,y:0,z:0},
-      leftUpLeg:{x:0,y:0,z:0},
-      rightUpLeg:{x:0,y:0,z:0},
-      leftKnee:{x:0,y:0,z:0},
-      rightKnee:{x:0,y:0,z:0},
-      leftFoot:{x:0,y:0,z:0},
-      rightFoot:{x:0,y:0,z:0},
-      leftToe:{x:0,y:0,z:0},
-      rightToe:{x:0,y:0,z:0}
-    },
-    mid:{
-      hips:{x:0,y:1.2,z:0.35},
-      leftUpLeg:{x:0.5,y:-0.9,z:-0.35},
-      rightUpLeg:{x:-10.5,y:1.9,z:0.65},
-      leftKnee:{x:0,y:-0.6,z:-0.25},
-      rightKnee:{x:-17.5,y:0.4,z:0.25},
-      leftFoot:{x:0.55,y:-1.35,z:-0.40},
-      rightFoot:{x:-0.9,y:4.9,z:1.15},
-      leftToe:{x:0.2,y:-0.7,z:-0.15},
-      rightToe:{x:-0.45,y:2.9,z:0.30}
-    },
-    leftMid:{
-      hips:{x:0,y:-1.2,z:-0.35},
-      leftUpLeg:{x:-10.5,y:-1.9,z:-0.65},
-      rightUpLeg:{x:0.5,y:0.9,z:0.35},
-      leftKnee:{x:-17.5,y:-0.4,z:-0.25},
-      rightKnee:{x:0,y:0.6,z:0.25},
-      leftFoot:{x:-0.9,y:-4.9,z:-1.15},
-      rightFoot:{x:0.55,y:1.35,z:0.40},
-      leftToe:{x:-0.45,y:-2.9,z:-0.30},
-      rightToe:{x:0.2,y:0.7,z:0.15}
-    },
-    end:{
-      hips:{x:0,y:0,z:0},
-      leftUpLeg:{x:0,y:0,z:0},
-      rightUpLeg:{x:0,y:0,z:0},
-      leftKnee:{x:0,y:0,z:0},
-      rightKnee:{x:0,y:0,z:0},
-      leftFoot:{x:0,y:0,z:0},
-      rightFoot:{x:0,y:0,z:0},
-      leftToe:{x:0,y:0,z:0},
-      rightToe:{x:0,y:0,z:0}
-    }
-  },
-  controls:{}
-};
 
 function lerpSecurityTurnPose(a,b,t){
   const out={};
@@ -19377,34 +13041,34 @@ function applyChildTalkHandsFinalPass(npc){
 
   addPlayerBoneAxisRotation(
     npc,b.leftForeArm,
-    PLAYER_AXIS_RIGHT,
+    CORE_BONE_AXIS_RIGHT,
     fore
   );
   addPlayerBoneAxisRotation(
     npc,b.rightForeArm,
-    PLAYER_AXIS_RIGHT,
+    CORE_BONE_AXIS_RIGHT,
     -fore
   );
 
   addPlayerBoneAxisRotation(
     npc,b.leftHand,
-    PLAYER_AXIS_RIGHT,
+    CORE_BONE_AXIS_RIGHT,
     hand
   );
   addPlayerBoneAxisRotation(
     npc,b.rightHand,
-    PLAYER_AXIS_RIGHT,
+    CORE_BONE_AXIS_RIGHT,
     -hand
   );
 
   addPlayerBoneAxisRotation(
     npc,b.leftHand,
-    PLAYER_AXIS_UP,
+    CORE_BONE_AXIS_UP,
     twist
   );
   addPlayerBoneAxisRotation(
     npc,b.rightHand,
-    PLAYER_AXIS_UP,
+    CORE_BONE_AXIS_UP,
     -twist
   );
 

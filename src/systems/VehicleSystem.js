@@ -386,8 +386,12 @@ if(aWheelWeight>.5){
 }
 
 function loadStreetVehicles(){
+  // Resolve the model relative to this module, so it works both on localhost
+  // and when the project is hosted under /final-project-cozygraphics/ on GitHub Pages.
+  const carModelUrl = new URL("../../assets/models/car.glb", import.meta.url).href;
+
   vehicleLoader.load(
-    "./assets/models/car.glb",
+    carModelUrl,
     (gltf)=>{
       const source=gltf.scene;
 
